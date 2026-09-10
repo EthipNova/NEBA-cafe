@@ -1,7 +1,6 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { AlertTriangle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { dashboardStats, demoBoardOrders, revenueByHour } from "@/lib/admin-data";
 import { formatETB, products } from "@/lib/menu-data";
 import { methodLabels, statusLabels } from "@/lib/orders";
@@ -21,9 +20,6 @@ function AdminDashboard() {
           <h1 className="font-display text-3xl font-semibold">Dashboard</h1>
           <p className="text-sm text-muted-foreground">Live operational overview (demo data).</p>
         </div>
-        <Button asChild variant="outline">
-          <Link to="/admin/orders">Open order board</Link>
-        </Button>
       </header>
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">

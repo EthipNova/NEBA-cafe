@@ -534,9 +534,9 @@ function AdminSettings() {
             </div>
 
             <div className="flex items-center justify-between rounded-lg border border-border/60 bg-card/40 p-3">
-              <span className="text-xs text-muted-foreground">Active Staff Role</span>
+              <span className="text-xs text-muted-foreground">Active Role</span>
               <Badge variant="outline" className="text-[10px] font-semibold">
-                {role || "STAFF"}
+                {role || "ADMIN"}
               </Badge>
             </div>
 

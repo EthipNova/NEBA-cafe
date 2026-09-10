@@ -1,6 +1,5 @@
 import { createFileRoute, Link, Outlet } from "@tanstack/react-router";
 import {
-  ClipboardList,
   CreditCard,
   FolderTree,
   LayoutDashboard,
@@ -22,10 +21,11 @@ import { applyTheme, readSettings } from "@/lib/settings";
 export const Route = createFileRoute("/admin")({
   head: () => ({
     meta: [
-      { title: "Staff & Admin — NEBA Café" },
+      { title: "Admin — NEBA Café" },
       {
         name: "description",
-        content: "Order operations, products and availability for NEBA Café staff.",
+        content:
+          "Operations, catalog, availability, payments and settings for NEBA Café management.",
       },
       { name: "robots", content: "noindex" },
     ],
@@ -37,7 +37,6 @@ const ROLE_KEY = "neba.role.v1";
 
 const nav = [
   { to: "/admin", label: "Dashboard", icon: LayoutDashboard, exact: true },
-  { to: "/admin/orders", label: "Orders", icon: ClipboardList, exact: false },
   { to: "/admin/payments", label: "Payments", icon: CreditCard, exact: false },
   { to: "/admin/promotions", label: "Promotions", icon: Tag, exact: false },
   { to: "/admin/customers", label: "Customers", icon: Users, exact: false },
@@ -47,15 +46,19 @@ const nav = [
   { to: "/admin/settings", label: "Settings", icon: Settings, exact: false },
 ] as const;
 
-const disabledNav: { label: string; icon: typeof Settings }[] = [];
-
 function AdminLayout() {
   const [role, setRole] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
   const [email, setEmail] = useState("");
 
   useEffect(() => {
-    setRole(localStorage.getItem(ROLE_KEY));
+    const stored = localStorage.getItem(ROLE_KEY);
+    if (stored === "STAFF") {
+      localStorage.setItem(ROLE_KEY, "ADMIN");
+      setRole("ADMIN");
+    } else {
+      setRole(stored);
+    }
     applyTheme(readSettings().theme);
     setReady(true);
   }, []);
@@ -68,34 +71,31 @@ function AdminLayout() {
     return (
       <div className="flex min-h-screen items-center justify-center bg-cream px-4">
         <div className="surface-card w-full max-w-sm p-8">
-          <h1 className="font-display text-2xl font-semibold">Staff sign in</h1>
+          <h1 className="font-display text-2xl font-semibold">Admin sign in</h1>
           <p className="mt-2 text-sm text-muted-foreground">
             Demo access only. Real sessions and role checks are enforced by the backend.
           </p>
           <div className="mt-6 space-y-2">
-            <Label htmlFor="staff-email">Work email</Label>
+            <Label htmlFor="admin-email">Admin email</Label>
             <Input
-              id="staff-email"
+              id="admin-email"
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="you@nebacafe.example"
             />
           </div>
-          <div className="mt-6 grid gap-2">
-            {["STAFF", "ADMIN"].map((r) => (
-              <Button
-                key={r}
-                variant={r === "ADMIN" ? "default" : "outline"}
-                onClick={() => {
-                  localStorage.setItem(ROLE_KEY, r);
-                  setRole(r);
-                  toast.success(`Signed in as ${r.toLowerCase()}`);
-                }}
-              >
-                Continue as {r.toLowerCase()}
-              </Button>
-            ))}
+          <div className="mt-6">
+            <Button
+              className="w-full"
+              onClick={() => {
+                localStorage.setItem(ROLE_KEY, "ADMIN");
+                setRole("ADMIN");
+                toast.success("Signed in as admin");
+              }}
+            >
+              Continue as admin
+            </Button>
           </div>
           <Button asChild variant="link" className="mt-4 w-full">
             <Link to="/">Back to café site</Link>
@@ -125,22 +125,6 @@ function AdminLayout() {
               {n.label}
             </Link>
           ))}
-          {disabledNav.length > 0 && (
-            <>
-              <p className="px-3 pb-1 pt-5 text-[10px] uppercase tracking-[0.2em] opacity-50">
-                Coming next
-              </p>
-              {disabledNav.map((n) => (
-                <span
-                  key={n.label}
-                  className="flex cursor-not-allowed items-center gap-3 rounded-lg px-3 py-2.5 text-sm opacity-40"
-                >
-                  <n.icon className="size-4" aria-hidden />
-                  {n.label}
-                </span>
-              ))}
-            </>
-          )}
         </nav>
         <div className="border-t border-sidebar-border pt-3">
           <p className="px-3 text-xs opacity-60">Signed in as {role}</p>

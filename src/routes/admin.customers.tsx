@@ -480,14 +480,9 @@ function AdminCustomers() {
           title="No customers yet"
           description="Customer profiles will appear here automatically as orders are submitted through checkout."
           action={
-            <div className="flex flex-wrap items-center justify-center gap-3">
-              <Button asChild variant="outline">
-                <Link to="/admin/orders">View Orders</Link>
-              </Button>
-              <Button asChild>
-                <Link to="/menu">Go to Menu</Link>
-              </Button>
-            </div>
+            <Button asChild>
+              <Link to="/menu">Go to Menu</Link>
+            </Button>
           }
         />
       ) : sortedCustomers.length === 0 ? (

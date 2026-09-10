@@ -105,7 +105,7 @@ export function Navbar() {
                     onClick={() => setOpen(false)}
                     className="block rounded-lg px-3 py-3 text-base font-medium hover:bg-secondary"
                   >
-                    Staff & Admin
+                    Admin
                   </Link>
                 </li>
               </ul>
