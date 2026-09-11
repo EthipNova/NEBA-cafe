@@ -48,14 +48,14 @@ import {
 } from "@/components/ui/table";
 import { EmptyState } from "@/components/site/Section";
 import {
-  aggregateCustomers,
+  fetchAdminCustomers,
   formatCustomerFullDateTime,
   formatCustomerRelativeDate,
+  formatETB,
   maskPhone,
   type DerivedCustomer,
 } from "@/lib/customers";
-import { formatETB } from "@/lib/menu-data";
-import { methodLabels, readOrders, statusLabels, type Order, type OrderMethod } from "@/lib/orders";
+import { methodLabels, statusLabels, type Order, type OrderMethod } from "@/lib/orders";
 
 export const Route = createFileRoute("/admin/customers")({
   head: () => ({
@@ -176,39 +176,38 @@ function getItemCount(order: Order): number {
 }
 
 function AdminCustomers() {
-  const [orders, setOrders] = useState<Order[] | null>(null);
+  const [customers, setCustomers] = useState<DerivedCustomer[] | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [methodFilter, setMethodFilter] = useState<string>("all");
   const [activityFilter, setActivityFilter] = useState<string>("all");
   const [sortBy, setSortBy] = useState<string>("recent");
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
 
+  const loadCustomers = async () => {
+    setLoading(true);
+    setError(null);
+    const { data, error: fetchErr } = await fetchAdminCustomers();
+    if (fetchErr) {
+      setError(fetchErr.message || "Failed to load customer profiles from database");
+      setCustomers(null);
+    } else {
+      setCustomers(data ?? []);
+    }
+    setLoading(false);
+  };
+
   useEffect(() => {
-    // 1. Read existing customer orders from neba.orders.v1 on client mount
-    setOrders(readOrders());
-
-    // 2. Synchronize whenever neba.orders.v1 updates in other tabs or actions
-    const handleStorage = (e: StorageEvent) => {
-      if (e.key === "neba.orders.v1" || e.key === null) {
-        setOrders(readOrders());
-      }
-    };
-
-    window.addEventListener("storage", handleStorage);
-    return () => window.removeEventListener("storage", handleStorage);
+    void loadCustomers();
   }, []);
 
-  const safeOrders = useMemo(() => orders ?? [], [orders]);
-
-  // Pure dynamic aggregation: Derives customer records directly from orders
-  const allCustomers = useMemo(() => {
-    return aggregateCustomers(safeOrders);
-  }, [safeOrders]);
+  const allCustomers = useMemo(() => customers ?? [], [customers]);
 
   // Overview metrics
   const totalCustomersCount = allCustomers.length;
   const activeCustomersCount = allCustomers.filter((c) => c.isRecent).length;
-  const totalOrdersCount = safeOrders.length;
+  const totalOrdersCount = allCustomers.reduce((sum, c) => sum + c.orderCount, 0);
   const totalSpendingAmount = allCustomers.reduce((sum, c) => sum + c.totalSpent, 0);
 
   // Filter customers
@@ -313,15 +312,6 @@ function AdminCustomers() {
         <p className="text-sm text-muted-foreground mt-1">
           Review customer order history, visit frequencies, and dining preferences.
         </p>
-        <div className="mt-2 rounded-lg border border-border/60 bg-muted/30 p-2.5 text-xs text-muted-foreground inline-flex items-center gap-2">
-          <Badge variant="outline" className="text-[10px] uppercase font-semibold">
-            Frontend demo data
-          </Badge>
-          <span>
-            Customer profiles are aggregated dynamically from local browser orders. Backend
-            synchronization will be connected later.
-          </span>
-        </div>
       </header>
 
       {/* 2. OVERVIEW METRICS */}
@@ -338,7 +328,7 @@ function AdminCustomers() {
           </div>
           <p className="font-display text-2xl font-bold text-foreground">{totalCustomersCount}</p>
           <p className="text-xs text-muted-foreground">
-            {totalCustomersCount === 1 ? "Unique customer" : "Unique customers"} derived from orders
+            {totalCustomersCount === 1 ? "Customer profile" : "Customer profiles"} in database
           </p>
         </div>
 
@@ -470,9 +460,28 @@ function AdminCustomers() {
       </div>
 
       {/* 4. CUSTOMER LIST */}
-      {orders === null ? (
+      {loading ? (
         <div className="surface-card p-12 text-center text-sm text-muted-foreground">
-          <p className="animate-pulse">Loading customer data…</p>
+          <p className="animate-pulse">Loading customer profiles from Supabase…</p>
+        </div>
+      ) : error ? (
+        <div className="surface-card p-12 text-center space-y-4 border-destructive/20 bg-destructive/5">
+          <div className="mx-auto flex size-12 items-center justify-center rounded-full bg-destructive/10 text-destructive">
+            <AlertCircle className="size-6" aria-hidden />
+          </div>
+          <div className="space-y-1">
+            <h3 className="text-base font-semibold text-foreground">Failed to load customer profiles</h3>
+            <p className="text-xs text-muted-foreground max-w-md mx-auto">{error}</p>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void loadCustomers()}
+            className="gap-1.5"
+          >
+            <RotateCcw className="size-3.5" aria-hidden />
+            <span>Retry connection</span>
+          </Button>
         </div>
       ) : allCustomers.length === 0 ? (
         <EmptyState

@@ -40,6 +40,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { supabase } from "@/lib/supabase";
 import {
   applyTheme,
   DEFAULT_SETTINGS,
@@ -76,16 +77,25 @@ function AdminSettings() {
     const loaded = readSettings();
     setSavedSettings(loaded);
     setForm(loaded);
-    setRole(localStorage.getItem("neba.role.v1"));
+
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (session?.user) {
+        const { data } = await supabase
+          .from("users")
+          .select("role")
+          .eq("id", session.user.id)
+          .maybeSingle();
+        if (data?.role) {
+          setRole(data.role);
+        }
+      }
+    });
 
     const handleStorage = (e: StorageEvent) => {
       if (e.key === SETTINGS_STORAGE_KEY || e.key === null) {
         const next = readSettings();
         setSavedSettings(next);
         setForm(next);
-      }
-      if (e.key === "neba.role.v1") {
-        setRole(localStorage.getItem("neba.role.v1"));
       }
     };
 
@@ -558,9 +568,6 @@ function AdminSettings() {
                 </span>
                 <span className="inline-flex items-center gap-1 rounded bg-muted px-2 py-0.5 text-[11px] font-mono text-muted-foreground">
                   <Database className="size-3" aria-hidden /> neba.settings.v1
-                </span>
-                <span className="inline-flex items-center gap-1 rounded bg-muted px-2 py-0.5 text-[11px] font-mono text-muted-foreground">
-                  <Database className="size-3" aria-hidden /> neba.role.v1
                 </span>
               </div>
             </div>
