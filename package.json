@@ -1,0 +1,9 @@
+{
+  "name": "neba-cafe-root",
+  "private": true,
+  "scripts": {
+    "dev": "npm --prefix NEBA-cafe-main run dev",
+    "build": "npm --prefix NEBA-cafe-main run build",
+    "preview": "npm --prefix NEBA-cafe-main run preview"
+  }
+}
