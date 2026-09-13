@@ -3,21 +3,25 @@ import {
   AlertCircle,
   CreditCard,
   FolderTree,
+  Globe,
   LayoutDashboard,
   LogOut,
   Package,
   Settings,
   Tag,
   ToggleLeft,
+  UserCheck,
   Users,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { applyTheme, readSettings } from "@/lib/settings";
 import { supabase, type UserRole } from "@/lib/supabase";
+import { getInitials, type AdminUserData } from "@/lib/admin-account";
 
 export const Route = createFileRoute("/admin")({
   head: () => ({
@@ -43,32 +47,78 @@ const nav = [
   { to: "/admin/categories", label: "Categories", icon: FolderTree, exact: false },
   { to: "/admin/availability", label: "Availability", icon: ToggleLeft, exact: false },
   { to: "/admin/settings", label: "Settings", icon: Settings, exact: false },
+  { to: "/admin/account", label: "Account", icon: UserCheck, exact: false },
 ] as const;
 
-async function verifyUserRole(userId: string): Promise<UserRole | null> {
+type VerifyAdminResult =
+  | { success: true; user: AdminUserData }
+  | { success: false; reason: "unauthorized" | "error"; message?: string };
+
+async function verifyAdminUser(userId: string): Promise<VerifyAdminResult> {
   try {
     const { data, error } = await supabase
       .from("users")
-      .select("id, email, role")
+      .select("id, email, role, full_name, avatar_url")
       .eq("id", userId)
       .maybeSingle();
 
-    if (error || !data) {
-      return null;
+    if (error) {
+      // Fallback if extended profile columns are not yet provisioned in database
+      const { data: fallback, error: fbErr } = await supabase
+        .from("users")
+        .select("id, email, role")
+        .eq("id", userId)
+        .maybeSingle();
+
+      if (fbErr) {
+        return { success: false, reason: "error", message: fbErr.message };
+      }
+
+      if (!fallback) {
+        return { success: false, reason: "unauthorized" };
+      }
+
+      if (fallback.role === "ADMIN" || fallback.role === "STAFF") {
+        return {
+          success: true,
+          user: {
+            role: fallback.role,
+            email: fallback.email,
+            fullName: null,
+            avatarUrl: null,
+          },
+        };
+      }
+
+      return { success: false, reason: "unauthorized" };
+    }
+
+    if (!data) {
+      return { success: false, reason: "unauthorized" };
     }
 
     if (data.role === "ADMIN" || data.role === "STAFF") {
-      return data.role;
+      return {
+        success: true,
+        user: {
+          role: data.role,
+          email: data.email,
+          fullName: data.full_name || null,
+          avatarUrl: data.avatar_url || null,
+        },
+      };
     }
 
-    return null;
-  } catch {
-    return null;
+    return { success: false, reason: "unauthorized" };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Network error";
+    return { success: false, reason: "error", message };
   }
 }
 
 function AdminLayout() {
   const [role, setRole] = useState<UserRole | null>(null);
+  const [adminUser, setAdminUser] = useState<AdminUserData | null>(null);
   const [ready, setReady] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -80,32 +130,7 @@ function AdminLayout() {
 
     let isMounted = true;
 
-    // Check existing active Supabase session on initial load
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      if (!isMounted) return;
-
-      if (session?.user) {
-        const verifiedRole = await verifyUserRole(session.user.id);
-        if (!isMounted) return;
-
-        if (verifiedRole) {
-          setRole(verifiedRole);
-        } else {
-          // User is authenticated in Supabase Auth but has no valid role in public.users
-          await supabase.auth.signOut();
-          setRole(null);
-          setErrorMsg(
-            "Your account has been authenticated, but it has not been assigned an authorized NEBA staff role. Please contact the administrator.",
-          );
-        }
-      }
-
-      if (isMounted) {
-        setReady(true);
-      }
-    });
-
-    // Listen for session changes (sign in, sign out, token refresh, expiration)
+    // Listen for session lifecycle events (INITIAL_SESSION, SIGNED_OUT, TOKEN_REFRESHED)
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
@@ -113,24 +138,42 @@ function AdminLayout() {
 
       if (event === "SIGNED_OUT" || !session?.user) {
         setRole(null);
+        setAdminUser(null);
         setReady(true);
         return;
       }
 
-      if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
-        const verifiedRole = await verifyUserRole(session.user.id);
+      if (event === "INITIAL_SESSION" || event === "TOKEN_REFRESHED") {
+        const result = await verifyAdminUser(session.user.id);
         if (!isMounted) return;
 
-        if (verifiedRole) {
-          setRole(verifiedRole);
+        if (result.success) {
+          setRole(result.user.role);
+          setAdminUser(result.user);
           setErrorMsg(null);
-        } else {
+        } else if (result.reason === "unauthorized") {
           await supabase.auth.signOut();
           setRole(null);
+          setAdminUser(null);
           setErrorMsg(
             "Your account has been authenticated, but it has not been assigned an authorized NEBA staff role. Please contact the administrator.",
           );
+        } else {
+          // Transient verification or network error: do NOT destroy the session
+          setErrorMsg(
+            "Unable to verify staff permissions. Please check your connection or refresh the page.",
+          );
         }
+        setReady(true);
+      }
+      // Note: "SIGNED_IN" is intentionally omitted here because handleSignIn
+      // serves as the single source of truth for the active login operation.
+    });
+
+    // Ensure ready state resolves if no session exists
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!isMounted) return;
+      if (!session?.user) {
         setReady(true);
       }
     });
@@ -168,19 +211,26 @@ function AdminLayout() {
       }
 
       if (data.user) {
-        const verifiedRole = await verifyUserRole(data.user.id);
-        if (!verifiedRole) {
+        const result = await verifyAdminUser(data.user.id);
+
+        if (result.success) {
+          setRole(result.user.role);
+          setAdminUser(result.user);
+          setErrorMsg(null);
+          toast.success(`Signed in as ${result.user.role}`);
+        } else if (result.reason === "unauthorized") {
           await supabase.auth.signOut();
+          setRole(null);
+          setAdminUser(null);
           setErrorMsg(
             "Your account has been authenticated, but it has not been assigned an authorized NEBA staff role. Please contact the administrator.",
           );
-          setLoading(false);
-          return;
+        } else {
+          // Transient verification / database / network failure: do NOT destroy session
+          setErrorMsg(
+            "Unable to verify staff permissions due to a network error. Please try again.",
+          );
         }
-
-        setRole(verifiedRole);
-        setErrorMsg(null);
-        toast.success(`Signed in as ${verifiedRole}`);
       }
     } catch {
       setErrorMsg("An unexpected network error occurred. Please try again.");
@@ -194,6 +244,7 @@ function AdminLayout() {
     try {
       await supabase.auth.signOut();
       setRole(null);
+      setAdminUser(null);
       setPassword("");
       setErrorMsg(null);
       toast.success("Signed out successfully");
@@ -294,15 +345,49 @@ function AdminLayout() {
             </Link>
           ))}
         </nav>
-        <div className="border-t border-sidebar-border pt-3">
-          <p className="px-3 text-xs opacity-60">Signed in as {role}</p>
+        <div className="border-t border-sidebar-border pt-3 space-y-2">
+          <Link
+            to="/"
+            activeOptions={{ exact: true }}
+            className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-sidebar-foreground opacity-85 transition-colors hover:bg-sidebar-accent hover:opacity-100"
+          >
+            <Globe className="size-4" aria-hidden />
+            <span>View Website</span>
+          </Link>
+          <div className="border-t border-sidebar-border" />
+          <Link
+            to="/admin/account"
+            activeProps={{ className: "bg-sidebar-accent" }}
+            className="flex items-center gap-3 rounded-lg p-2 transition-colors hover:bg-sidebar-accent group"
+            title="Manage account profile"
+          >
+            <Avatar className="size-9 border border-sidebar-border shrink-0">
+              {adminUser?.avatarUrl && (
+                <AvatarImage
+                  src={adminUser.avatarUrl}
+                  alt={adminUser.fullName || adminUser.email}
+                />
+              )}
+              <AvatarFallback className="bg-primary/20 text-primary text-xs font-semibold">
+                {getInitials(adminUser?.fullName, adminUser?.email)}
+              </AvatarFallback>
+            </Avatar>
+            <div className="flex-1 min-w-0">
+              <p className="truncate text-xs font-medium text-sidebar-foreground group-hover:text-primary transition-colors">
+                {adminUser?.fullName || adminUser?.email || "Admin Account"}
+              </p>
+              <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">
+                {adminUser?.role || role}
+              </p>
+            </div>
+          </Link>
           <Button
             variant="ghost"
             disabled={loading}
-            className="mt-1 w-full justify-start text-sidebar-foreground hover:bg-sidebar-accent"
+            className="w-full justify-start text-sidebar-foreground hover:bg-sidebar-accent text-xs h-8"
             onClick={handleSignOut}
           >
-            <LogOut className="size-4 mr-2" /> Sign out
+            <LogOut className="size-3.5 mr-2" /> Sign out
           </Button>
         </div>
       </aside>
@@ -320,6 +405,14 @@ function AdminLayout() {
               {n.label}
             </Link>
           ))}
+          <Link
+            to="/"
+            activeOptions={{ exact: true }}
+            className="whitespace-nowrap rounded-lg px-3 py-2 text-sm flex items-center gap-1.5 opacity-80 hover:opacity-100"
+          >
+            <Globe className="size-4" aria-hidden />
+            View Website
+          </Link>
         </div>
         <div className="p-4 sm:p-8">
           <Outlet />

@@ -6,6 +6,9 @@ export type DbUser = {
   id: string;
   email: string;
   role: UserRole;
+  full_name?: string | null;
+  phone?: string | null;
+  avatar_url?: string | null;
   created_at?: string;
   updated_at?: string;
 };
@@ -48,8 +51,26 @@ if (!supabaseUrl || !supabaseKey) {
   );
 }
 
+// Clean up any legacy Supabase Auth tokens lingering in localStorage from previous configuration
+if (typeof window !== "undefined" && typeof window.localStorage !== "undefined") {
+  try {
+    for (let i = 0; i < window.localStorage.length; i++) {
+      const key = window.localStorage.key(i);
+      if (key && key.startsWith("sb-") && key.endsWith("-auth-token")) {
+        window.localStorage.removeItem(key);
+      }
+    }
+  } catch {
+    /* ignore storage access restrictions */
+  }
+}
+
 export const supabase = createClient<Database>(supabaseUrl, supabaseKey, {
   auth: {
+    storage:
+      typeof window !== "undefined" && typeof window.sessionStorage !== "undefined"
+        ? window.sessionStorage
+        : undefined,
     persistSession: true,
     autoRefreshToken: true,
     detectSessionInUrl: true,
