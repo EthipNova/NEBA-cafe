@@ -1,10 +1,17 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { MenuBrowser } from "@/components/site/MenuBrowser";
-import { getCategory } from "@/lib/menu-data";
+import { fetchCategories, fetchProducts } from "@/services/api";
 
 export const Route = createFileRoute("/menu/$category")({
-  head: ({ params }) => {
-    const category = getCategory(params.category);
+  loader: async () => {
+    const [categories, products] = await Promise.all([
+      fetchCategories().catch(() => []),
+      fetchProducts().catch(() => []),
+    ]);
+    return { categories, products };
+  },
+  head: ({ params, loaderData }) => {
+    const category = loaderData?.categories.find((c) => c.slug === params.category);
     const title = category ? `${category.name} — NEBA Café Menu` : "Menu — NEBA Café";
     const description = category
       ? `${category.name}: ${category.tagline}. Order online from NEBA Café.`
@@ -23,5 +30,12 @@ export const Route = createFileRoute("/menu/$category")({
 
 function CategoryPage() {
   const { category } = Route.useParams();
-  return <MenuBrowser activeCategory={category} />;
+  const { categories, products } = Route.useLoaderData();
+  return (
+    <MenuBrowser
+      activeCategory={category}
+      initialCategories={categories}
+      initialProducts={products}
+    />
+  );
 }

@@ -8,6 +8,7 @@ import {
   LogOut,
   Package,
   Settings,
+  ShoppingBag,
   Tag,
   ToggleLeft,
   UserCheck,
@@ -40,6 +41,7 @@ export const Route = createFileRoute("/admin")({
 
 const nav = [
   { to: "/admin", label: "Dashboard", icon: LayoutDashboard, exact: true },
+  { to: "/admin/orders", label: "Orders", icon: ShoppingBag, exact: false },
   { to: "/admin/payments", label: "Payments", icon: CreditCard, exact: false },
   { to: "/admin/promotions", label: "Promotions", icon: Tag, exact: false },
   { to: "/admin/customers", label: "Customers", icon: Users, exact: false },
