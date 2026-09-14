@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { Clock, Mail, MapPin, Phone } from "lucide-react";
+import { Clock, ExternalLink, Mail, MapPin, Navigation, Phone } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -24,7 +24,8 @@ export const Route = createFileRoute("/contact")({
       { title: "Contact NEBA Café" },
       {
         name: "description",
-        content: "Get in touch with NEBA Café — location, phone, email, opening hours and enquiries.",
+        content:
+          "Get in touch with NEBA Café — location, phone, email, opening hours and enquiries.",
       },
       { property: "og:title", content: "Contact NEBA Café" },
       { property: "og:description", content: "Location, hours and how to reach NEBA Café." },
@@ -60,7 +61,11 @@ function ContactPage() {
     { icon: MapPin, label: "Location", value: settings.address || DEFAULT_SETTINGS.address },
     { icon: Phone, label: "Phone", value: settings.phone || DEFAULT_SETTINGS.phone },
     { icon: Mail, label: "Email", value: settings.email || DEFAULT_SETTINGS.email },
-    { icon: Clock, label: "Opening hours", value: settings.openingHours || DEFAULT_SETTINGS.openingHours },
+    {
+      icon: Clock,
+      label: "Opening hours",
+      value: settings.openingHours || DEFAULT_SETTINGS.openingHours,
+    },
   ];
 
   return (
@@ -81,12 +86,82 @@ function ContactPage() {
               </li>
             ))}
           </ul>
-          <div className="surface-card flex h-56 items-center justify-center bg-muted text-sm text-muted-foreground">
-            Map integration: {settings.address}
+          <div className="surface-card relative overflow-hidden p-6 sm:p-7">
+            {/* Subtle decorative coordinate grid background */}
+            <div
+              className="pointer-events-none absolute inset-0 opacity-[0.05] dark:opacity-[0.10]"
+              aria-hidden
+            >
+              <svg
+                className="h-full w-full"
+                xmlns="http://www.w3.org/2000/svg"
+                width="100%"
+                height="100%"
+              >
+                <defs>
+                  <pattern
+                    id="contact-map-grid"
+                    width="24"
+                    height="24"
+                    patternUnits="userSpaceOnUse"
+                  >
+                    <path
+                      d="M 24 0 L 0 0 0 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="0.5"
+                    />
+                  </pattern>
+                </defs>
+                <rect width="100%" height="100%" fill="url(#contact-map-grid)" />
+              </svg>
+            </div>
+
+            {/* Subtle ambient brand glow */}
+            <div
+              className="pointer-events-none absolute -right-10 -top-10 size-36 rounded-full bg-primary/10 blur-2xl"
+              aria-hidden
+            />
+
+            <div className="relative z-10 flex flex-col justify-between gap-5">
+              <div className="flex flex-col gap-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary">
+                    <MapPin className="size-3.5" aria-hidden />
+                    Our Location
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    Piassa • Near Kibru Hospital
+                  </span>
+                </div>
+
+                <div className="space-y-1">
+                  <h3 className="font-display text-lg font-semibold text-foreground">
+                    Visit NEBA Café
+                  </h3>
+                  <p className="text-sm text-muted-foreground leading-relaxed">
+                    {settings.address || DEFAULT_SETTINGS.address}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center pt-1">
+                <Button asChild className="gap-2">
+                  <a
+                    href="https://maps.app.goo.gl/JSWYJbLG9sL3gfK5A"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label="View NEBA Café on Google Maps"
+                  >
+                    <Navigation className="size-4" aria-hidden />
+                    View on Google Maps
+                    <ExternalLink className="size-3.5 opacity-80" aria-hidden />
+                  </a>
+                </Button>
+              </div>
+            </div>
           </div>
-          <p className="text-sm text-muted-foreground">
-            Social media: @nebacafe
-          </p>
+          <p className="text-sm text-muted-foreground">Social media: @nebacafe</p>
         </div>
 
         <form

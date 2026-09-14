@@ -5,7 +5,8 @@ import type { Category, Product } from "@/lib/menu-data";
 import type { Order, OrderItem, OrderStatus } from "@/lib/orders";
 import type { Promotion, DiscountType, PromotionStatus } from "@/lib/promotions";
 import { DEFAULT_SETTINGS, type NebaSettings } from "@/lib/settings";
-import { supabase } from "@/lib/supabase";
+import { type AboutContent, DEFAULT_ABOUT_CONTENT, normalizeAboutContent } from "@/lib/content";
+import { createScopedClient, supabase } from "@/lib/supabase";
 
 export interface DatabaseSchema {
   categories: Category[];
@@ -13,6 +14,7 @@ export interface DatabaseSchema {
   promotions: Promotion[];
   settings: NebaSettings;
   orders: Order[];
+  about_content?: AboutContent;
 }
 
 function resolveDbPath(): string {
@@ -47,6 +49,10 @@ export async function readDb(): Promise<DatabaseSchema> {
           ? (parsed.settings as NebaSettings)
           : { ...DEFAULT_SETTINGS },
       orders: Array.isArray(parsed.orders) ? parsed.orders : [],
+      about_content:
+        parsed.about_content && typeof parsed.about_content === "object"
+          ? normalizeAboutContent(parsed.about_content)
+          : { ...DEFAULT_ABOUT_CONTENT },
     };
   } catch {
     return {
@@ -55,6 +61,7 @@ export async function readDb(): Promise<DatabaseSchema> {
       promotions: [],
       settings: { ...DEFAULT_SETTINGS },
       orders: [],
+      about_content: { ...DEFAULT_ABOUT_CONTENT },
     };
   }
 }
@@ -211,7 +218,10 @@ function normalizeOrder(raw: any): Order {
     createdAt: raw.created_at,
     method: raw.method || "dine-in",
     status: raw.status || "received",
-    paymentStatus: paymentStatus === "paid" || paymentStatus === "pending" || paymentStatus === "failed" ? paymentStatus : "paid",
+    paymentStatus:
+      paymentStatus === "paid" || paymentStatus === "pending" || paymentStatus === "failed"
+        ? paymentStatus
+        : "paid",
     paymentMethod,
     customer: {
       name: raw.customer_name || "Guest",
@@ -259,7 +269,8 @@ export async function getProducts(options?: {
 }): Promise<Product[]> {
   try {
     let query = (supabase.from("products" as any) as any)
-      .select(`
+      .select(
+        `
         id,
         category_id,
         name,
@@ -278,7 +289,8 @@ export async function getProducts(options?: {
           tagline,
           is_active
         )
-      `)
+      `,
+      )
       .order("created_at", { ascending: false });
 
     if (typeof options?.available === "boolean") {
@@ -312,7 +324,8 @@ export async function getProducts(options?: {
 export async function getProductById(id: string): Promise<Product | undefined> {
   try {
     const { data, error } = await (supabase.from("products" as any) as any)
-      .select(`
+      .select(
+        `
         id,
         category_id,
         name,
@@ -330,7 +343,8 @@ export async function getProductById(id: string): Promise<Product | undefined> {
           tagline,
           is_active
         )
-      `)
+      `,
+      )
       .or(`id.eq.${id},slug.eq.${id}`)
       .maybeSingle();
 
@@ -401,14 +415,18 @@ export async function createProduct(
   return newProduct;
 }
 
-export async function updateProduct(id: string, updates: Partial<Product>): Promise<Product | null> {
+export async function updateProduct(
+  id: string,
+  updates: Partial<Product>,
+): Promise<Product | null> {
   try {
     const updatePayload: Record<string, any> = {
       updated_at: new Date().toISOString(),
     };
     if (updates.name !== undefined) updatePayload["name"] = updates.name.trim();
     if (updates.price !== undefined) updatePayload["price"] = updates.price;
-    if (updates.description !== undefined) updatePayload["description"] = updates.description.trim();
+    if (updates.description !== undefined)
+      updatePayload["description"] = updates.description.trim();
     if (updates.available !== undefined) updatePayload["is_available"] = updates.available;
     if (updates.featured !== undefined) updatePayload["is_featured"] = updates.featured;
     if (updates.image !== undefined) updatePayload["image_url"] = updates.image.trim();
@@ -471,7 +489,8 @@ export async function deleteProduct(id: string): Promise<boolean> {
 export async function getOrders(): Promise<Order[]> {
   try {
     const { data, error } = await (supabase.from("orders" as any) as any)
-      .select(`
+      .select(
+        `
         id,
         order_number,
         customer_name,
@@ -508,7 +527,8 @@ export async function getOrders(): Promise<Order[]> {
           status,
           amount
         )
-      `)
+      `,
+      )
       .order("created_at", { ascending: false });
 
     if (!error && data && data.length > 0) {
@@ -525,7 +545,8 @@ export async function getOrders(): Promise<Order[]> {
 export async function getOrderById(id: string): Promise<Order | undefined> {
   try {
     const { data, error } = await (supabase.from("orders" as any) as any)
-      .select(`
+      .select(
+        `
         id,
         order_number,
         customer_name,
@@ -562,7 +583,8 @@ export async function getOrderById(id: string): Promise<Order | undefined> {
           status,
           amount
         )
-      `)
+      `,
+      )
       .or(`id.eq.${id},order_number.eq.${id}`)
       .maybeSingle();
 
@@ -613,7 +635,8 @@ export async function createOrder(input: {
     const orderRecord = {
       id: orderId,
       order_number: orderNumber,
-      customer_name: input.customer.name || (input.method === "dine-in" ? "Dine-in Guest" : "Guest"),
+      customer_name:
+        input.customer.name || (input.method === "dine-in" ? "Dine-in Guest" : "Guest"),
       customer_phone: input.customer.phone || "",
       method: input.method,
       status: "received",
@@ -656,7 +679,10 @@ export async function createOrder(input: {
       const created = await getOrderById(orderId);
       if (created) return created;
     } else {
-      console.warn("[db] Supabase order insert blocked by RLS, falling back to local:", ordErr.message);
+      console.warn(
+        "[db] Supabase order insert blocked by RLS, falling back to local:",
+        ordErr.message,
+      );
     }
   } catch (err) {
     console.warn("[db] Error inserting order to Supabase, falling back to local:", err);
@@ -685,7 +711,10 @@ export async function createOrder(input: {
   return newOrder;
 }
 
-export async function updateOrderStatus(idOrNumber: string, status: OrderStatus): Promise<Order | null> {
+export async function updateOrderStatus(
+  idOrNumber: string,
+  status: OrderStatus,
+): Promise<Order | null> {
   // Always update in local fallback DB first so it is immediately reflected
   const db = await readDb();
   const orderIndex = db.orders.findIndex((o) => o.id === idOrNumber || o.number === idOrNumber);
@@ -700,8 +729,7 @@ export async function updateOrderStatus(idOrNumber: string, status: OrderStatus)
   try {
     const { error, data } = await (supabase.from("orders" as any) as any)
       .update({ status, updated_at: new Date().toISOString() })
-      .or(`id.eq.${idOrNumber},order_number.eq.${idOrNumber}`)
-      .select(`
+      .or(`id.eq.${idOrNumber},order_number.eq.${idOrNumber}`).select(`
         id,
         order_number,
         customer_name,
@@ -757,7 +785,8 @@ export async function updateOrderStatus(idOrNumber: string, status: OrderStatus)
 export async function getPromotions(): Promise<Promotion[]> {
   try {
     const { data, error } = await (supabase.from("promotions" as any) as any)
-      .select(`
+      .select(
+        `
         id,
         name,
         description,
@@ -786,7 +815,8 @@ export async function getPromotions(): Promise<Promotion[]> {
             category_id
           )
         )
-      `)
+      `,
+      )
       .order("created_at", { ascending: false });
 
     if (!error && data && data.length > 0) {
@@ -838,9 +868,7 @@ export async function createPromotion(promo: Promotion): Promise<Promotion> {
 
 export async function deletePromotion(id: string): Promise<boolean> {
   try {
-    const { error } = await (supabase.from("promotions" as any) as any)
-      .delete()
-      .eq("id", id);
+    const { error } = await (supabase.from("promotions" as any) as any).delete().eq("id", id);
     if (!error) return true;
   } catch (err) {
     console.warn(`[db] Failed to delete promotion ${id} from Supabase:`, err);
@@ -922,4 +950,111 @@ export async function updateSettings(updates: Partial<NebaSettings>): Promise<Ne
   };
   await writeDb(db);
   return db.settings;
+}
+
+/* ==========================================================================
+   6. Website Content (Live Supabase with Local Fallback)
+   ========================================================================== */
+
+export async function getAboutContent(): Promise<AboutContent> {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase.from("about_content" as any) as any)
+      .select(
+        "id, homepage_hero_image, about_hero_image, about_title, about_description, story_title, story_content, story_image, value_1_title, value_1_description, value_2_title, value_2_description, value_3_title, value_3_description, updated_at",
+      )
+      .eq("id", 1)
+      .maybeSingle();
+
+    if (!error && data) {
+      return normalizeAboutContent(data);
+    }
+  } catch (err) {
+    console.warn("[db] Failed to fetch about content from Supabase:", err);
+  }
+
+  try {
+    const local = await readDb();
+    if (local.about_content) {
+      return normalizeAboutContent(local.about_content);
+    }
+  } catch (err) {
+    console.warn("[db] Failed to read local db.json for about content:", err);
+  }
+
+  return { ...DEFAULT_ABOUT_CONTENT };
+}
+
+export async function updateAboutContent(
+  updates: Partial<AboutContent>,
+  token?: string,
+): Promise<AboutContent> {
+  const nowIso = new Date().toISOString();
+  const payload: Record<string, any> = {
+    updated_at: nowIso,
+  };
+
+  if (updates.homepage_hero_image !== undefined)
+    payload["homepage_hero_image"] = updates.homepage_hero_image;
+  if (updates.about_hero_image !== undefined)
+    payload["about_hero_image"] = updates.about_hero_image;
+  if (updates.about_title !== undefined) payload["about_title"] = updates.about_title.trim();
+  if (updates.about_description !== undefined)
+    payload["about_description"] = updates.about_description.trim();
+  if (updates.story_title !== undefined) payload["story_title"] = updates.story_title.trim();
+  if (updates.story_content !== undefined) payload["story_content"] = updates.story_content.trim();
+  if (updates.story_image !== undefined) payload["story_image"] = updates.story_image;
+  if (updates.value_1_title !== undefined) payload["value_1_title"] = updates.value_1_title.trim();
+  if (updates.value_1_description !== undefined)
+    payload["value_1_description"] = updates.value_1_description.trim();
+  if (updates.value_2_title !== undefined) payload["value_2_title"] = updates.value_2_title.trim();
+  if (updates.value_2_description !== undefined)
+    payload["value_2_description"] = updates.value_2_description.trim();
+  if (updates.value_3_title !== undefined) payload["value_3_title"] = updates.value_3_title.trim();
+  if (updates.value_3_description !== undefined)
+    payload["value_3_description"] = updates.value_3_description.trim();
+
+  try {
+    const client = token ? createScopedClient(token) : supabase;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (client.from("about_content" as any) as any)
+      .update(payload)
+      .eq("id", 1)
+      .select()
+      .maybeSingle();
+
+    if (!error && data) {
+      try {
+        const db = await readDb();
+        db.about_content = normalizeAboutContent({
+          ...(db.about_content || DEFAULT_ABOUT_CONTENT),
+          ...payload,
+        });
+        await writeDb(db);
+      } catch {
+        // ignore local mirror errors if Supabase succeeded
+      }
+      return normalizeAboutContent(data);
+    }
+    if (error) {
+      console.warn("[db] Supabase about_content update returned error:", error.message);
+      if (token) {
+        throw new Error(`Database update failed: ${error.message}`);
+      }
+    }
+  } catch (err) {
+    console.warn("[db] Failed to update about content in Supabase:", err);
+    if (token) {
+      throw err;
+    }
+  }
+
+  // Fallback to local db.json
+  const db = await readDb();
+  db.about_content = normalizeAboutContent({
+    ...(db.about_content || DEFAULT_ABOUT_CONTENT),
+    ...payload,
+  });
+  await writeDb(db);
+  return db.about_content;
 }
