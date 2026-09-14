@@ -154,8 +154,23 @@ export const products: Product[] = [
   },
 ];
 
-export const getProduct = (id: string) =>
-  products.find((p) => p.id === id || p.slug === id);
+const productRegistry = new Map<string, Product>();
+
+export function registerProduct(product: Product): void {
+  productRegistry.set(product.id, product);
+  if (product.slug) {
+    productRegistry.set(product.slug, product);
+  }
+}
+
+export function registerProducts(productList: Product[]): void {
+  for (const p of productList) {
+    registerProduct(p);
+  }
+}
+
+export const getProduct = (id: string): Product | undefined =>
+  productRegistry.get(id) || products.find((p) => p.id === id || p.slug === id);
 
 export const getCategory = (slug: string) => categories.find((c) => c.slug === slug);
 

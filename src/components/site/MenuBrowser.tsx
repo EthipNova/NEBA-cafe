@@ -1,28 +1,91 @@
 import { Link } from "@tanstack/react-router";
-import { Search, UtensilsCrossed } from "lucide-react";
-import { useMemo, useState } from "react";
+import { Loader2, Search, UtensilsCrossed } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { EmptyState, Section } from "@/components/site/Section";
 import { ProductCard } from "@/components/site/ProductCard";
-import { categories, products } from "@/lib/menu-data";
+import {
+  categories as seedCategories,
+  products as seedProducts,
+  registerProducts,
+  type Category,
+  type Product,
+} from "@/lib/menu-data";
 import { cn } from "@/lib/utils";
+import { fetchCategories, fetchProducts } from "@/services/api";
 
-export function MenuBrowser({ activeCategory }: { activeCategory?: string }) {
+export function MenuBrowser({
+  activeCategory,
+  initialCategories,
+  initialProducts,
+}: {
+  activeCategory?: string | undefined;
+  initialCategories?: Category[] | undefined;
+  initialProducts?: Product[] | undefined;
+}) {
+  const [categoriesList, setCategoriesList] = useState<Category[]>(
+    initialCategories && initialCategories.length > 0 ? initialCategories : seedCategories,
+  );
+  const [productsList, setProductsList] = useState<Product[]>(
+    initialProducts && initialProducts.length > 0 ? initialProducts : seedProducts,
+  );
+  const [loading, setLoading] = useState(
+    (!initialProducts || initialProducts.length === 0) &&
+      (!initialCategories || initialCategories.length === 0),
+  );
   const [query, setQuery] = useState("");
   const [availableOnly, setAvailableOnly] = useState(false);
 
+  useEffect(() => {
+    if (initialCategories && initialCategories.length > 0) {
+      setCategoriesList(initialCategories);
+    }
+  }, [initialCategories]);
+
+  useEffect(() => {
+    if (initialProducts && initialProducts.length > 0) {
+      setProductsList(initialProducts);
+      registerProducts(initialProducts);
+    }
+  }, [initialProducts]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadData() {
+      try {
+        const [cats, prods] = await Promise.all([
+          fetchCategories().catch(() => seedCategories),
+          fetchProducts().catch(() => seedProducts),
+        ]);
+        if (!cancelled) {
+          if (cats && cats.length > 0) setCategoriesList(cats);
+          if (prods && prods.length > 0) {
+            setProductsList(prods);
+            registerProducts(prods);
+          }
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    void loadData();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const results = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return products.filter((p) => {
+    return productsList.filter((p) => {
       if (activeCategory && p.categorySlug !== activeCategory) return false;
       if (availableOnly && !p.available) return false;
       if (!q) return true;
       return p.name.toLowerCase().includes(q) || p.description.toLowerCase().includes(q);
     });
-  }, [query, availableOnly, activeCategory]);
+  }, [query, availableOnly, activeCategory, productsList]);
 
-  const current = categories.find((c) => c.slug === activeCategory);
+  const current = categoriesList.find((c) => c.slug === activeCategory);
 
   return (
     <Section>
@@ -46,7 +109,7 @@ export function MenuBrowser({ activeCategory }: { activeCategory?: string }) {
         >
           All
         </Link>
-        {categories.map((c) => (
+        {categoriesList.map((c) => (
           <Link
             key={c.id}
             to="/menu/$category"
@@ -84,7 +147,12 @@ export function MenuBrowser({ activeCategory }: { activeCategory?: string }) {
       </div>
 
       <div className="mt-8">
-        {results.length === 0 ? (
+        {loading ? (
+          <div className="flex items-center justify-center p-12 text-sm text-muted-foreground">
+            <Loader2 className="mr-2 size-5 animate-spin" />
+            Loading menu items…
+          </div>
+        ) : results.length === 0 ? (
           <EmptyState
             icon={<UtensilsCrossed className="size-8" />}
             title="No matching products"

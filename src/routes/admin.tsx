@@ -1,31 +1,37 @@
 import { createFileRoute, Link, Outlet } from "@tanstack/react-router";
 import {
-  ClipboardList,
+  AlertCircle,
   CreditCard,
   FolderTree,
+  Globe,
   LayoutDashboard,
   LogOut,
   Package,
   Settings,
+  ShoppingBag,
   Tag,
   ToggleLeft,
+  UserCheck,
   Users,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-
 import { applyTheme, readSettings } from "@/lib/settings";
+import { supabase, type UserRole } from "@/lib/supabase";
+import { getInitials, type AdminUserData } from "@/lib/admin-account";
 
 export const Route = createFileRoute("/admin")({
   head: () => ({
     meta: [
-      { title: "Staff & Admin — NEBA Café" },
+      { title: "Admin — NEBA Café" },
       {
         name: "description",
-        content: "Order operations, products and availability for NEBA Café staff.",
+        content:
+          "Operations, catalog, availability, payments and settings for NEBA Café management.",
       },
       { name: "robots", content: "noindex" },
     ],
@@ -33,11 +39,9 @@ export const Route = createFileRoute("/admin")({
   component: AdminLayout,
 });
 
-const ROLE_KEY = "neba.role.v1";
-
 const nav = [
   { to: "/admin", label: "Dashboard", icon: LayoutDashboard, exact: true },
-  { to: "/admin/orders", label: "Orders", icon: ClipboardList, exact: false },
+  { to: "/admin/orders", label: "Orders", icon: ShoppingBag, exact: false },
   { to: "/admin/payments", label: "Payments", icon: CreditCard, exact: false },
   { to: "/admin/promotions", label: "Promotions", icon: Tag, exact: false },
   { to: "/admin/customers", label: "Customers", icon: Users, exact: false },
@@ -45,58 +49,275 @@ const nav = [
   { to: "/admin/categories", label: "Categories", icon: FolderTree, exact: false },
   { to: "/admin/availability", label: "Availability", icon: ToggleLeft, exact: false },
   { to: "/admin/settings", label: "Settings", icon: Settings, exact: false },
+  { to: "/admin/account", label: "Account", icon: UserCheck, exact: false },
 ] as const;
 
-const disabledNav: { label: string; icon: typeof Settings }[] = [];
+type VerifyAdminResult =
+  | { success: true; user: AdminUserData }
+  | { success: false; reason: "unauthorized" | "error"; message?: string };
+
+async function verifyAdminUser(userId: string): Promise<VerifyAdminResult> {
+  try {
+    const { data, error } = await supabase
+      .from("users")
+      .select("id, email, role, full_name, avatar_url")
+      .eq("id", userId)
+      .maybeSingle();
+
+    if (error) {
+      // Fallback if extended profile columns are not yet provisioned in database
+      const { data: fallback, error: fbErr } = await supabase
+        .from("users")
+        .select("id, email, role")
+        .eq("id", userId)
+        .maybeSingle();
+
+      if (fbErr) {
+        return { success: false, reason: "error", message: fbErr.message };
+      }
+
+      if (!fallback) {
+        return { success: false, reason: "unauthorized" };
+      }
+
+      if (fallback.role === "ADMIN" || fallback.role === "STAFF") {
+        return {
+          success: true,
+          user: {
+            role: fallback.role,
+            email: fallback.email,
+            fullName: null,
+            avatarUrl: null,
+          },
+        };
+      }
+
+      return { success: false, reason: "unauthorized" };
+    }
+
+    if (!data) {
+      return { success: false, reason: "unauthorized" };
+    }
+
+    if (data.role === "ADMIN" || data.role === "STAFF") {
+      return {
+        success: true,
+        user: {
+          role: data.role,
+          email: data.email,
+          fullName: data.full_name || null,
+          avatarUrl: data.avatar_url || null,
+        },
+      };
+    }
+
+    return { success: false, reason: "unauthorized" };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Network error";
+    return { success: false, reason: "error", message };
+  }
+}
 
 function AdminLayout() {
-  const [role, setRole] = useState<string | null>(null);
+  const [role, setRole] = useState<UserRole | null>(null);
+  const [adminUser, setAdminUser] = useState<AdminUserData | null>(null);
   const [ready, setReady] = useState(false);
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   useEffect(() => {
-    setRole(localStorage.getItem(ROLE_KEY));
     applyTheme(readSettings().theme);
-    setReady(true);
+
+    let isMounted = true;
+
+    // Listen for session lifecycle events (INITIAL_SESSION, SIGNED_OUT, TOKEN_REFRESHED)
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (!isMounted) return;
+
+      if (event === "SIGNED_OUT" || !session?.user) {
+        setRole(null);
+        setAdminUser(null);
+        setReady(true);
+        return;
+      }
+
+      if (event === "INITIAL_SESSION" || event === "TOKEN_REFRESHED") {
+        const result = await verifyAdminUser(session.user.id);
+        if (!isMounted) return;
+
+        if (result.success) {
+          setRole(result.user.role);
+          setAdminUser(result.user);
+          setErrorMsg(null);
+        } else if (result.reason === "unauthorized") {
+          await supabase.auth.signOut();
+          setRole(null);
+          setAdminUser(null);
+          setErrorMsg(
+            "Your account has been authenticated, but it has not been assigned an authorized NEBA staff role. Please contact the administrator.",
+          );
+        } else {
+          // Transient verification or network error: do NOT destroy the session
+          setErrorMsg(
+            "Unable to verify staff permissions. Please check your connection or refresh the page.",
+          );
+        }
+        setReady(true);
+      }
+      // Note: "SIGNED_IN" is intentionally omitted here because handleSignIn
+      // serves as the single source of truth for the active login operation.
+    });
+
+    // Ensure ready state resolves if no session exists
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!isMounted) return;
+      if (!session?.user) {
+        setReady(true);
+      }
+    });
+
+    return () => {
+      isMounted = false;
+      subscription.unsubscribe();
+    };
   }, []);
 
+  const handleSignIn = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email.trim() || !password) {
+      setErrorMsg("Please enter both email and password.");
+      return;
+    }
+
+    setLoading(true);
+    setErrorMsg(null);
+
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      });
+
+      if (error) {
+        if (error.message.toLowerCase().includes("invalid login credentials")) {
+          setErrorMsg("Invalid email or password.");
+        } else {
+          setErrorMsg(error.message || "Failed to sign in.");
+        }
+        setLoading(false);
+        return;
+      }
+
+      if (data.user) {
+        const result = await verifyAdminUser(data.user.id);
+
+        if (result.success) {
+          setRole(result.user.role);
+          setAdminUser(result.user);
+          setErrorMsg(null);
+          toast.success(`Signed in as ${result.user.role}`);
+        } else if (result.reason === "unauthorized") {
+          await supabase.auth.signOut();
+          setRole(null);
+          setAdminUser(null);
+          setErrorMsg(
+            "Your account has been authenticated, but it has not been assigned an authorized NEBA staff role. Please contact the administrator.",
+          );
+        } else {
+          // Transient verification / database / network failure: do NOT destroy session
+          setErrorMsg(
+            "Unable to verify staff permissions due to a network error. Please try again.",
+          );
+        }
+      }
+    } catch {
+      setErrorMsg("An unexpected network error occurred. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSignOut = async () => {
+    setLoading(true);
+    try {
+      await supabase.auth.signOut();
+      setRole(null);
+      setAdminUser(null);
+      setPassword("");
+      setErrorMsg(null);
+      toast.success("Signed out successfully");
+    } catch {
+      toast.error("Error signing out");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   if (!ready) {
-    return <p className="p-10 text-muted-foreground">Loading dashboard…</p>;
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-cream px-4">
+        <p className="p-10 text-sm text-muted-foreground animate-pulse">Verifying credentials…</p>
+      </div>
+    );
   }
 
   if (!role) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-cream px-4">
         <div className="surface-card w-full max-w-sm p-8">
-          <h1 className="font-display text-2xl font-semibold">Staff sign in</h1>
+          <h1 className="font-display text-2xl font-semibold">Admin sign in</h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            Demo access only. Real sessions and role checks are enforced by the backend.
+            Enter your NEBA staff credentials to access café operations.
           </p>
-          <div className="mt-6 space-y-2">
-            <Label htmlFor="staff-email">Work email</Label>
-            <Input
-              id="staff-email"
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@nebacafe.example"
-            />
-          </div>
-          <div className="mt-6 grid gap-2">
-            {["STAFF", "ADMIN"].map((r) => (
-              <Button
-                key={r}
-                variant={r === "ADMIN" ? "default" : "outline"}
-                onClick={() => {
-                  localStorage.setItem(ROLE_KEY, r);
-                  setRole(r);
-                  toast.success(`Signed in as ${r.toLowerCase()}`);
-                }}
+
+          <form onSubmit={handleSignIn} className="mt-6 space-y-4">
+            {errorMsg && (
+              <div
+                className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-xs text-destructive flex items-start gap-2"
+                role="alert"
               >
-                Continue as {r.toLowerCase()}
-              </Button>
-            ))}
-          </div>
+                <AlertCircle className="size-4 shrink-0 mt-0.5" aria-hidden />
+                <span>{errorMsg}</span>
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <Label htmlFor="admin-email">Admin email</Label>
+              <Input
+                id="admin-email"
+                type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="staff@nebacafe.com"
+                autoComplete="email"
+                disabled={loading}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="admin-password">Password</Label>
+              <Input
+                id="admin-password"
+                type="password"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••••"
+                autoComplete="current-password"
+                disabled={loading}
+              />
+            </div>
+
+            <Button type="submit" className="w-full mt-2" disabled={loading}>
+              {loading ? "Signing in…" : "Sign in"}
+            </Button>
+          </form>
+
           <Button asChild variant="link" className="mt-4 w-full">
             <Link to="/">Back to café site</Link>
           </Button>
@@ -125,34 +346,50 @@ function AdminLayout() {
               {n.label}
             </Link>
           ))}
-          {disabledNav.length > 0 && (
-            <>
-              <p className="px-3 pb-1 pt-5 text-[10px] uppercase tracking-[0.2em] opacity-50">
-                Coming next
-              </p>
-              {disabledNav.map((n) => (
-                <span
-                  key={n.label}
-                  className="flex cursor-not-allowed items-center gap-3 rounded-lg px-3 py-2.5 text-sm opacity-40"
-                >
-                  <n.icon className="size-4" aria-hidden />
-                  {n.label}
-                </span>
-              ))}
-            </>
-          )}
         </nav>
-        <div className="border-t border-sidebar-border pt-3">
-          <p className="px-3 text-xs opacity-60">Signed in as {role}</p>
+        <div className="border-t border-sidebar-border pt-3 space-y-2">
+          <Link
+            to="/"
+            activeOptions={{ exact: true }}
+            className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-sidebar-foreground opacity-85 transition-colors hover:bg-sidebar-accent hover:opacity-100"
+          >
+            <Globe className="size-4" aria-hidden />
+            <span>View Website</span>
+          </Link>
+          <div className="border-t border-sidebar-border" />
+          <Link
+            to="/admin/account"
+            activeProps={{ className: "bg-sidebar-accent" }}
+            className="flex items-center gap-3 rounded-lg p-2 transition-colors hover:bg-sidebar-accent group"
+            title="Manage account profile"
+          >
+            <Avatar className="size-9 border border-sidebar-border shrink-0">
+              {adminUser?.avatarUrl && (
+                <AvatarImage
+                  src={adminUser.avatarUrl}
+                  alt={adminUser.fullName || adminUser.email}
+                />
+              )}
+              <AvatarFallback className="bg-primary/20 text-primary text-xs font-semibold">
+                {getInitials(adminUser?.fullName, adminUser?.email)}
+              </AvatarFallback>
+            </Avatar>
+            <div className="flex-1 min-w-0">
+              <p className="truncate text-xs font-medium text-sidebar-foreground group-hover:text-primary transition-colors">
+                {adminUser?.fullName || adminUser?.email || "Admin Account"}
+              </p>
+              <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">
+                {adminUser?.role || role}
+              </p>
+            </div>
+          </Link>
           <Button
             variant="ghost"
-            className="mt-1 w-full justify-start text-sidebar-foreground hover:bg-sidebar-accent"
-            onClick={() => {
-              localStorage.removeItem(ROLE_KEY);
-              setRole(null);
-            }}
+            disabled={loading}
+            className="w-full justify-start text-sidebar-foreground hover:bg-sidebar-accent text-xs h-8"
+            onClick={handleSignOut}
           >
-            <LogOut className="size-4" /> Sign out
+            <LogOut className="size-3.5 mr-2" /> Sign out
           </Button>
         </div>
       </aside>
@@ -170,6 +407,14 @@ function AdminLayout() {
               {n.label}
             </Link>
           ))}
+          <Link
+            to="/"
+            activeOptions={{ exact: true }}
+            className="whitespace-nowrap rounded-lg px-3 py-2 text-sm flex items-center gap-1.5 opacity-80 hover:opacity-100"
+          >
+            <Globe className="size-4" aria-hidden />
+            View Website
+          </Link>
         </div>
         <div className="p-4 sm:p-8">
           <Outlet />

@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { EmptyState, Section } from "@/components/site/Section";
 import { formatETB } from "@/lib/menu-data";
 import { methodLabels, readOrders, statusLabels, type Order } from "@/lib/orders";
+import { fetchOrderById } from "@/services/api";
 
 export const Route = createFileRoute("/orders")({
   head: () => ({
@@ -21,7 +22,23 @@ export const Route = createFileRoute("/orders")({
 
 function OrdersPage() {
   const [orders, setOrders] = useState<Order[] | null>(null);
-  useEffect(() => setOrders(readOrders()), []);
+
+  useEffect(() => {
+    const local = readOrders();
+    setOrders(local);
+
+    if (local.length > 0) {
+      void Promise.all(
+        local.map((o) =>
+          fetchOrderById(o.id)
+            .then((updated) => updated || o)
+            .catch(() => o),
+        ),
+      ).then((refreshed) => {
+        setOrders(refreshed);
+      });
+    }
+  }, []);
 
   return (
     <Section className="max-w-3xl">

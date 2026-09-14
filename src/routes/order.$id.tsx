@@ -19,35 +19,67 @@ import { EmptyState, Section } from "@/components/site/Section";
 import { OrderTimeline } from "@/components/site/OrderTimeline";
 import { formatETB, getProduct } from "@/lib/menu-data";
 import { findOrder, methodLabels, statusLabels, type Order } from "@/lib/orders";
+import { fetchOrderById } from "@/services/api";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/order/$id")({
-  head: () => ({
-    meta: [
-      { title: "Order Confirmation & Tracking — NEBA Café" },
-      {
-        name: "description",
-        content: "Confirmation details and live tracking for your NEBA Café order.",
-      },
-      { name: "robots", content: "noindex" },
-      { property: "og:title", content: "Order Confirmation — NEBA Café" },
-      { property: "og:description", content: "Your NEBA Café order has been confirmed." },
-    ],
-  }),
+  loader: async ({ params }) => {
+    try {
+      const order = await fetchOrderById(params.id);
+      return { order };
+    } catch {
+      return { order: null };
+    }
+  },
+  head: ({ loaderData, params }) => {
+    const title = loaderData?.order
+      ? `Order ${loaderData.order.number} — NEBA Café`
+      : `Order ${params.id} — NEBA Café`;
+    return {
+      meta: [
+        { title },
+        {
+          name: "description",
+          content: "Confirmation details and live tracking for your NEBA Café order.",
+        },
+        { name: "robots", content: "noindex" },
+        { property: "og:title", content: title },
+        { property: "og:description", content: "Your NEBA Café order has been confirmed." },
+      ],
+    };
+  },
   component: OrderPage,
 });
 
 function OrderPage() {
   const { id } = Route.useParams();
+  const loaderData = Route.useLoaderData();
   const [state, setState] = useState<{ loading: boolean; order: Order | null }>({
-    loading: true,
-    order: null,
+    loading: !loaderData?.order,
+    order: loaderData?.order || null,
   });
 
   useEffect(() => {
-    // Read-only retrieval of the saved order by ID or order number
-    const found = findOrder(id) ?? null;
-    setState({ loading: false, order: found });
+    let cancelled = false;
+    async function load() {
+      try {
+        const remote = await fetchOrderById(id);
+        if (!cancelled && remote) {
+          setState({ loading: false, order: remote });
+          return;
+        }
+      } catch {
+        // Fall back to local storage
+      }
+      if (!cancelled) {
+        const found = findOrder(id) ?? null;
+        setState({ loading: false, order: found });
+      }
+    }
+    void load();
+    return () => {
+      cancelled = true;
+    };
   }, [id]);
 
   if (state.loading) {

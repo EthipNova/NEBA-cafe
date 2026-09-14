@@ -6,10 +6,20 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Section } from "@/components/site/Section";
 import { useCart } from "@/lib/cart";
-import { formatETB, getProduct } from "@/lib/menu-data";
+import { formatETB, getProduct, registerProduct } from "@/lib/menu-data";
+import { fetchProductById } from "@/services/api";
 
 export const Route = createFileRoute("/product/$id")({
-  loader: ({ params }) => {
+  loader: async ({ params }) => {
+    try {
+      const product = await fetchProductById(params.id);
+      if (product) {
+        registerProduct(product);
+        return { product };
+      }
+    } catch {
+      // Fall back to synchronous getProduct
+    }
     const product = getProduct(params.id);
     if (!product) throw notFound();
     return { product };

@@ -1,6 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { Check, CreditCard, ShoppingBag, Store, Truck, Utensils } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,9 +9,18 @@ import { EmptyState, Section } from "@/components/site/Section";
 import { useCart } from "@/lib/cart";
 import { formatETB, getProduct } from "@/lib/menu-data";
 import { buildOrder, methodLabels, saveOrder, type OrderMethod } from "@/lib/orders";
+import { createOrder as apiCreateOrder, fetchSettings } from "@/services/api";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/checkout")({
+  loader: async () => {
+    try {
+      const settings = await fetchSettings();
+      return { deliveryFee: settings.deliveryFee };
+    } catch {
+      return { deliveryFee: 90 };
+    }
+  },
   head: () => ({
     meta: [
       { title: "Checkout — NEBA Café" },
@@ -29,40 +38,14 @@ export const Route = createFileRoute("/checkout")({
 
 const steps = ["Ordering method", "Customer information", "Order summary", "Payment"] as const;
 
-const DELIVERY_FEE = 80;
-
-const methodOptions: {
-  value: OrderMethod;
-  label: string;
-  text: string;
-  icon: typeof Utensils;
-}[] = [
-  {
-    value: "dine-in",
-    label: "Dine-in",
-    text: "Enjoy your meal fresh at the café.",
-    icon: Utensils,
-  },
-  {
-    value: "takeaway",
-    label: "Takeaway",
-    text: "Order ahead and collect your food.",
-    icon: Store,
-  },
-  {
-    value: "delivery",
-    label: "Delivery",
-    text: `Delivered to your location (+${DELIVERY_FEE} ETB).`,
-    icon: Truck,
-  },
-];
-
 type FormField = "name" | "phone" | "table" | "address";
 type FormErrors = Partial<Record<FormField, string>>;
 
 function Checkout() {
   const navigate = useNavigate();
+  const loaderData = Route.useLoaderData();
   const { lines, subtotal, clear } = useCart();
+  const [deliveryFee, setDeliveryFee] = useState<number>(loaderData?.deliveryFee ?? 90);
   const [step, setStep] = useState(0);
   const [method, setMethod] = useState<OrderMethod>("dine-in");
   const [form, setForm] = useState({ name: "", phone: "", table: "", address: "" });
@@ -70,7 +53,41 @@ function Checkout() {
   const [payment, setPayment] = useState("mobile");
   const [submitting, setSubmitting] = useState(false);
 
-  const delivery = method === "delivery" ? DELIVERY_FEE : 0;
+  useEffect(() => {
+    fetchSettings()
+      .then((s) => {
+        if (s?.deliveryFee !== undefined) setDeliveryFee(s.deliveryFee);
+      })
+      .catch(() => {});
+  }, []);
+
+  const methodOptions: {
+    value: OrderMethod;
+    label: string;
+    text: string;
+    icon: typeof Utensils;
+  }[] = [
+    {
+      value: "dine-in",
+      label: "Dine-in",
+      text: "Enjoy your meal fresh at the café.",
+      icon: Utensils,
+    },
+    {
+      value: "takeaway",
+      label: "Takeaway",
+      text: "Order ahead and collect your food.",
+      icon: Store,
+    },
+    {
+      value: "delivery",
+      label: "Delivery",
+      text: `Delivered to your location (+${deliveryFee} ETB).`,
+      icon: Truck,
+    },
+  ];
+
+  const delivery = method === "delivery" ? deliveryFee : 0;
   const total = subtotal + delivery;
 
   if (lines.length === 0) {
@@ -161,34 +178,53 @@ function Checkout() {
     }
   };
 
-  const pay = () => {
+  const pay = async () => {
     if (!validateCurrentStep()) return;
 
     setSubmitting(true);
-    // The frontend never declares payment success on its own: this call stands in
-    // for POST /api/payments, whose result the backend verifies before confirming.
-    setTimeout(() => {
-      const order = saveOrder(
-        buildOrder({
-          lines,
-          method,
-          paymentMethod: payment === "mobile" ? "Mobile Payment" : "Other Supported Method",
-          delivery,
-          customer: {
-            name: form.name.trim() || (method === "dine-in" ? "Dine-in guest" : ""),
-            phone: form.phone.trim(),
-            ...(method === "dine-in" && form.table.trim() ? { table: form.table.trim() } : {}),
-            ...(method === "delivery" && form.address.trim()
-              ? { address: form.address.trim() }
-              : {}),
-          },
-        }),
-      );
+    try {
+      const orderData = {
+        lines: lines.map((l) => ({ productId: l.productId, quantity: l.quantity })),
+        method,
+        paymentMethod: payment === "mobile" ? "Mobile Payment" : "Other Supported Method",
+        delivery,
+        customer: {
+          name: form.name.trim() || (method === "dine-in" ? "Dine-in guest" : ""),
+          phone: form.phone.trim(),
+          ...(method === "dine-in" && form.table.trim() ? { table: form.table.trim() } : {}),
+          ...(method === "delivery" && form.address.trim()
+            ? { address: form.address.trim() }
+            : {}),
+        },
+      };
+
+      let order;
+      try {
+        order = await apiCreateOrder(orderData);
+      } catch (err) {
+        console.warn("API order creation failed, falling back to local storage:", err);
+        order = saveOrder(
+          buildOrder({
+            lines,
+            method,
+            paymentMethod: orderData.paymentMethod,
+            delivery,
+            customer: orderData.customer,
+          }),
+        );
+      }
+
+      // Keep local order cache synchronized
+      saveOrder(order);
       clear();
-      setSubmitting(false);
       toast.success("Order confirmed");
       void navigate({ to: "/order/$id", params: { id: order.id } });
-    }, 900);
+    } catch (e) {
+      console.error(e);
+      toast.error("Failed to complete order. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -269,7 +305,7 @@ function Checkout() {
               <div className="rounded-lg border border-primary/20 bg-primary/5 p-4 text-xs text-muted-foreground">
                 <p className="font-medium text-foreground">Delivery Notice</p>
                 <p className="mt-0.5">
-                  A flat delivery fee of {DELIVERY_FEE} ETB will be added to your order summary. You
+                  A flat delivery fee of {deliveryFee} ETB will be added to your order summary. You
                   will provide your delivery address in the next step.
                 </p>
               </div>

@@ -11,14 +11,34 @@ import {
   Truck,
   Utensils,
 } from "lucide-react";
+import { useEffect, useState } from "react";
 import hero from "@/assets/hero.jpg";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Section, SectionHeading } from "@/components/site/Section";
 import { ProductCard } from "@/components/site/ProductCard";
-import { categories, formatETB, getProduct, products, promotion } from "@/lib/menu-data";
+import {
+  categories as seedCategories,
+  formatETB,
+  getProduct,
+  products as seedProducts,
+  promotion,
+  registerProducts,
+  type Category,
+  type Product,
+} from "@/lib/menu-data";
+import type { Promotion } from "@/lib/promotions";
+import { fetchCategories, fetchProducts, fetchPromotions } from "@/services/api";
 
 export const Route = createFileRoute("/")({
+  loader: async () => {
+    const [categories, products, promotions] = await Promise.all([
+      fetchCategories().catch(() => seedCategories),
+      fetchProducts().catch(() => seedProducts),
+      fetchPromotions().catch(() => []),
+    ]);
+    return { categories, products, promotions };
+  },
   head: () => ({
     meta: [
       { title: "NEBA Café — Good Food. Great Moments. Simply NEBA." },
@@ -69,8 +89,58 @@ const methods = [
 ];
 
 function Home() {
-  const featured = products.filter((p) => p.featured);
-  const promoProduct = getProduct(promotion.productId);
+  const loaderData = Route.useLoaderData();
+  const [categoriesList, setCategoriesList] = useState<Category[]>(
+    loaderData?.categories && loaderData.categories.length > 0 ? loaderData.categories : seedCategories,
+  );
+  const [productsList, setProductsList] = useState<Product[]>(
+    loaderData?.products && loaderData.products.length > 0 ? loaderData.products : seedProducts,
+  );
+  const initialActivePromo =
+    loaderData?.promotions?.find((p) => p.status === "active") || loaderData?.promotions?.[0] || null;
+  const [activePromotion, setActivePromotion] = useState<Promotion | null>(initialActivePromo);
+
+  useEffect(() => {
+    if (loaderData?.products && loaderData.products.length > 0) {
+      registerProducts(loaderData.products);
+    }
+  }, [loaderData?.products]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadData() {
+      try {
+        const [cats, prods, promos] = await Promise.all([
+          fetchCategories().catch(() => seedCategories),
+          fetchProducts().catch(() => seedProducts),
+          fetchPromotions().catch(() => []),
+        ]);
+        if (!cancelled) {
+          if (cats && cats.length > 0) setCategoriesList(cats);
+          if (prods && prods.length > 0) {
+            setProductsList(prods);
+            registerProducts(prods);
+          }
+          if (promos && promos.length > 0) {
+            const firstActive = promos.find((p) => p.status === "active") || promos[0];
+            if (firstActive) setActivePromotion(firstActive);
+          }
+        }
+      } catch (err) {
+        console.warn("Failed to load home page dynamic data:", err);
+      }
+    }
+    void loadData();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const featured = productsList.filter((p) => p.featured);
+  const displayFeatured = featured.length > 0 ? featured : productsList.slice(0, 3);
+  const promoProduct = activePromotion
+    ? productsList.find((p) => activePromotion.applicableProductIds.includes(p.id)) || getProduct(promotion.productId)
+    : getProduct(promotion.productId);
 
   return (
     <>
@@ -115,7 +185,7 @@ function Home() {
       <Section>
         <SectionHeading eyebrow="Categories" title="Find what you're craving" />
         <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-          {categories.map((c) => (
+          {categoriesList.map((c) => (
             <Link
               key={c.id}
               to="/menu/$category"
@@ -138,7 +208,7 @@ function Home() {
           </Button>
         </div>
         <div className="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-          {featured.map((p) => (
+          {displayFeatured.map((p) => (
             <ProductCard key={p.id} product={p} />
           ))}
         </div>

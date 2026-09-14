@@ -6,7 +6,6 @@ import {
   CheckCircle2,
   Clock,
   Eye,
-  Percent,
   Pencil,
   Plus,
   RotateCcw,
@@ -15,7 +14,7 @@ import {
   Tag,
   Trash2,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
   AlertDialog,
@@ -55,16 +54,19 @@ import {
 } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 import { EmptyState } from "@/components/site/Section";
-import { formatETB, getProduct, products as allProducts } from "@/lib/menu-data";
 import {
-  deletePromotion,
+  createAdminPromotion,
+  deleteAdminPromotion,
   derivePromotionStatus,
+  fetchAdminPromotions,
+  fetchPromotionProductsList,
   formatDiscount,
-  readPromotions,
-  savePromotion,
-  updatePromotion,
+  formatETB,
+  updateAdminPromotion,
+  type CreatePromotionInput,
   type DiscountType,
   type Promotion,
+  type PromotionProductItem,
   type PromotionStatus,
 } from "@/lib/promotions";
 
@@ -131,6 +133,11 @@ type FormErrors = {
 
 function AdminPromotions() {
   const [promotions, setPromotions] = useState<Promotion[] | null>(null);
+  const [availableProducts, setAvailableProducts] = useState<PromotionProductItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [discountTypeFilter, setDiscountTypeFilter] = useState<string>("all");
@@ -155,20 +162,43 @@ function AdminPromotions() {
   const [minOrderAmount, setMinOrderAmount] = useState<string>("");
   const [formErrors, setFormErrors] = useState<FormErrors>({});
 
-  useEffect(() => {
-    setPromotions(readPromotions());
+  const loadData = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const [promosRes, productsRes] = await Promise.all([
+        fetchAdminPromotions(),
+        fetchPromotionProductsList(),
+      ]);
 
-    const handleStorage = (e: StorageEvent) => {
-      if (e.key === "neba.promotions.v1" || e.key === null) {
-        setPromotions(readPromotions());
+      if (promosRes.error) {
+        setError(promosRes.error.message || "Failed to load promotions from database.");
+        setPromotions([]);
+      } else {
+        setPromotions(promosRes.data ?? []);
       }
-    };
 
-    window.addEventListener("storage", handleStorage);
-    return () => window.removeEventListener("storage", handleStorage);
+      if (productsRes.data) {
+        setAvailableProducts(productsRes.data);
+      }
+    } catch (err: any) {
+      setError(err instanceof Error ? err.message : "Failed to load promotions data.");
+      setPromotions([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadData();
   }, []);
 
   const safePromos = promotions ?? [];
+
+  const productMap = useMemo(
+    () => new Map(availableProducts.map((p) => [p.id, p])),
+    [availableProducts],
+  );
 
   // Summary Metrics derived from current promotion state
   const activeCount = safePromos.filter((p) => derivePromotionStatus(p) === "active").length;
@@ -183,10 +213,12 @@ function AdminPromotions() {
   const hasUniversalPromo = activeOrScheduled.some((p) => p.applicableProductIds.includes("*"));
   const targetedProductIds = new Set<string>();
   if (hasUniversalPromo) {
-    allProducts.forEach((p) => targetedProductIds.add(p.id));
+    availableProducts.forEach((p) => targetedProductIds.add(p.id));
   } else {
     activeOrScheduled.forEach((p) => {
-      p.applicableProductIds.forEach((id) => targetedProductIds.add(id));
+      p.applicableProductIds.forEach((id) => {
+        if (id !== "*") targetedProductIds.add(id);
+      });
     });
   }
   const productsOnPromotionCount = targetedProductIds.size;
@@ -208,8 +240,8 @@ function AdminPromotions() {
       const nameMatch = p.name.toLowerCase().includes(q);
       const descMatch = (p.description || "").toLowerCase().includes(q);
       const productMatch = p.applicableProductIds.some((id) => {
-        if (id === "*") return "all products".includes(q);
-        const prod = getProduct(id);
+        if (id === "*") return "all products".includes(q) || "all menu products".includes(q);
+        const prod = productMap.get(id);
         return prod?.name.toLowerCase().includes(q);
       });
 
@@ -319,45 +351,82 @@ function AdminPromotions() {
     return Object.keys(errors).length === 0;
   };
 
-  const handleSavePromotion = () => {
+  const handleSavePromotion = async () => {
     if (!validateForm()) return;
 
-    const promoData: Promotion = {
-      id: editingPromotion ? editingPromotion.id : `promo_${Date.now().toString(36)}`,
+    setIsSubmitting(true);
+    const todayStr = new Date().toISOString().split("T")[0]!;
+    const computedStatus: PromotionStatus =
+      statusMode === "draft"
+        ? "draft"
+        : startDate > todayStr
+          ? "scheduled"
+          : endDate < todayStr
+            ? "expired"
+            : "active";
+
+    const payload: CreatePromotionInput = {
       name: name.trim(),
-      description: description.trim(),
+      description: description.trim() || undefined,
       discountType,
       discountValue: Number(discountValue),
-      applicableProductIds: targetAll ? ["*"] : selectedProductIds,
       startDate,
       endDate,
-      status: statusMode === "draft" ? "draft" : undefined,
-      minOrderAmount: minOrderAmount.trim() ? Number(minOrderAmount) : undefined,
-      createdAt: editingPromotion ? editingPromotion.createdAt : new Date().toISOString(),
+      status: computedStatus,
+      minOrderAmount: minOrderAmount.trim() ? Number(minOrderAmount) : null,
     };
 
-    if (editingPromotion) {
-      updatePromotion(promoData);
-      setPromotions(readPromotions());
-      toast.success(`Promotion "${promoData.name}" updated`);
-    } else {
-      savePromotion(promoData);
-      setPromotions(readPromotions());
-      toast.success(`Promotion "${promoData.name}" created`);
-    }
+    const targetIds = targetAll ? ["*"] : selectedProductIds;
 
-    setIsFormOpen(false);
+    try {
+      if (editingPromotion) {
+        const { error: updateErr } = await updateAdminPromotion(
+          editingPromotion.id,
+          payload,
+          targetIds,
+        );
+        if (updateErr) {
+          toast.error(updateErr.message);
+          setIsSubmitting(false);
+          return;
+        }
+        toast.success(`Promotion "${payload.name}" updated`);
+      } else {
+        const { error: createErr } = await createAdminPromotion(payload, targetIds);
+        if (createErr) {
+          toast.error(createErr.message);
+          setIsSubmitting(false);
+          return;
+        }
+        toast.success(`Promotion "${payload.name}" created`);
+      }
+
+      setIsFormOpen(false);
+      await loadData();
+    } catch (err: any) {
+      toast.error(err instanceof Error ? err.message : "Failed to save promotion");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  const handleDeleteConfirm = () => {
+  const handleDeleteConfirm = async () => {
     if (!deletingId) return;
     const target = safePromos.find((p) => p.id === deletingId);
-    deletePromotion(deletingId);
-    setPromotions(readPromotions());
-    toast.success(`Promotion "${target?.name || "Offer"}" removed`);
-    setDeletingId(null);
-    if (selectedDetailsId === deletingId) {
-      setSelectedDetailsId(null);
+    try {
+      const { error: delErr } = await deleteAdminPromotion(deletingId);
+      if (delErr) {
+        toast.error(delErr.message);
+        return;
+      }
+      toast.success(`Promotion "${target?.name || "Offer"}" removed`);
+      if (selectedDetailsId === deletingId) {
+        setSelectedDetailsId(null);
+      }
+      setDeletingId(null);
+      await loadData();
+    } catch (err: any) {
+      toast.error(err instanceof Error ? err.message : "Failed to delete promotion");
     }
   };
 
@@ -385,15 +454,6 @@ function AdminPromotions() {
           <p className="text-sm text-muted-foreground mt-1">
             Create, schedule, and oversee café discount campaigns and menu promotions.
           </p>
-          <div className="mt-2 rounded-lg border border-border/60 bg-muted/30 p-2 text-xs text-muted-foreground inline-flex items-center gap-2">
-            <Badge variant="outline" className="text-[10px] uppercase font-semibold">
-              Frontend demo data
-            </Badge>
-            <span>
-              Promotion changes are stored locally in this browser. Backend promotion management
-              will be connected later.
-            </span>
-          </div>
         </div>
 
         <Button onClick={openCreateDialog} className="gap-1.5 shadow-sm">
@@ -545,10 +605,31 @@ function AdminPromotions() {
         </div>
       </div>
 
-      {/* 4. PROMOTION CARDS LIST */}
-      {promotions === null ? (
+      {/* 4. ERROR STATE */}
+      {error && (
+        <div className="surface-card p-8 text-center space-y-4 border border-destructive/30 bg-destructive/5">
+          <div className="inline-flex size-12 items-center justify-center rounded-full bg-destructive/10 text-destructive mx-auto">
+            <AlertCircle className="size-6" aria-hidden />
+          </div>
+          <div className="space-y-1">
+            <h3 className="font-display text-lg font-semibold text-foreground">
+              Unable to load promotions
+            </h3>
+            <p className="text-xs text-muted-foreground max-w-md mx-auto">
+              {error}
+            </p>
+          </div>
+          <Button onClick={loadData} size="sm" className="gap-2">
+            <RotateCcw className="size-3.5" aria-hidden />
+            Retry connection
+          </Button>
+        </div>
+      )}
+
+      {/* 5. PROMOTION CARDS LIST / STATES */}
+      {loading && promotions === null ? (
         <div className="surface-card p-12 text-center text-sm text-muted-foreground">
-          <p className="animate-pulse">Loading promotions…</p>
+          <p className="animate-pulse">Loading promotions from database…</p>
         </div>
       ) : safePromos.length === 0 ? (
         <EmptyState
@@ -661,7 +742,7 @@ function AdminPromotions() {
         </div>
       )}
 
-      {/* 5. CREATE / EDIT PROMOTION DIALOG */}
+      {/* 6. CREATE / EDIT PROMOTION DIALOG */}
       <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
         <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
@@ -827,32 +908,38 @@ function AdminPromotions() {
                     Select the products that qualify for this discount:
                   </p>
                   <div className="max-h-40 overflow-y-auto rounded-lg border border-border p-2 space-y-1 bg-card">
-                    {allProducts.map((p) => {
-                      const checked = selectedProductIds.includes(p.id);
-                      return (
-                        <label
-                          key={p.id}
-                          className="flex items-center gap-2 px-2 py-1.5 text-xs rounded hover:bg-muted/50 cursor-pointer"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setSelectedProductIds((prev) => [...prev, p.id]);
-                              } else {
-                                setSelectedProductIds((prev) => prev.filter((id) => id !== p.id));
-                              }
-                            }}
-                            className="size-3.5 rounded border-border"
-                          />
-                          <span className="font-medium text-foreground">{p.name}</span>
-                          <span className="text-muted-foreground ml-auto">
-                            {formatETB(p.price)}
-                          </span>
-                        </label>
-                      );
-                    })}
+                    {availableProducts.length === 0 ? (
+                      <p className="text-xs text-muted-foreground p-2 text-center">
+                        No menu items found in database.
+                      </p>
+                    ) : (
+                      availableProducts.map((p) => {
+                        const checked = selectedProductIds.includes(p.id);
+                        return (
+                          <label
+                            key={p.id}
+                            className="flex items-center gap-2 px-2 py-1.5 text-xs rounded hover:bg-muted/50 cursor-pointer"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedProductIds((prev) => [...prev, p.id]);
+                                } else {
+                                  setSelectedProductIds((prev) => prev.filter((id) => id !== p.id));
+                                }
+                              }}
+                              className="size-3.5 rounded border-border"
+                            />
+                            <span className="font-medium text-foreground">{p.name}</span>
+                            <span className="text-muted-foreground ml-auto">
+                              {formatETB(p.price)}
+                            </span>
+                          </label>
+                        );
+                      })
+                    )}
                   </div>
                   {formErrors.products && (
                     <p className="text-xs text-destructive flex items-center gap-1">
@@ -865,17 +952,25 @@ function AdminPromotions() {
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsFormOpen(false)}>
+            <Button
+              variant="outline"
+              disabled={isSubmitting}
+              onClick={() => setIsFormOpen(false)}
+            >
               Cancel
             </Button>
-            <Button onClick={handleSavePromotion}>
-              {editingPromotion ? "Save Changes" : "Create Promotion"}
+            <Button disabled={isSubmitting} onClick={handleSavePromotion}>
+              {isSubmitting
+                ? "Saving…"
+                : editingPromotion
+                  ? "Save Changes"
+                  : "Create Promotion"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* 6. PROMOTION DETAILS DRAWER */}
+      {/* 7. PROMOTION DETAILS DRAWER */}
       <Sheet
         open={selectedDetailsId !== null}
         onOpenChange={(open) => !open && setSelectedDetailsId(null)}
@@ -983,7 +1078,10 @@ function AdminPromotions() {
                 ) : (
                   <ul className="divide-y divide-border rounded-xl border border-border bg-card/60 px-4 max-h-56 overflow-y-auto">
                     {selectedDetailsPromo.applicableProductIds.map((id) => {
-                      const prod = getProduct(id);
+                      const prod =
+                        selectedDetailsPromo.products?.find((p) => p.id === id) ||
+                        productMap.get(id);
+
                       if (!prod) {
                         return (
                           <li key={id} className="py-2.5 text-xs text-muted-foreground">
@@ -994,13 +1092,14 @@ function AdminPromotions() {
                       return (
                         <li key={id} className="flex items-center justify-between gap-3 py-2.5">
                           <div className="flex items-center gap-2.5 min-w-0">
-                            {prod.image ? (
+                            {prod.imageUrl ? (
                               <img
-                                src={prod.image}
+                                src={prod.imageUrl}
                                 alt={prod.name}
                                 className="size-9 rounded-md object-cover bg-muted shrink-0"
                                 width={36}
                                 height={36}
+                                loading="lazy"
                               />
                             ) : (
                               <div className="flex size-9 items-center justify-center rounded-md bg-muted text-muted-foreground shrink-0">
@@ -1011,8 +1110,8 @@ function AdminPromotions() {
                               <p className="font-medium text-foreground text-xs truncate">
                                 {prod.name}
                               </p>
-                              <p className="text-[10px] text-muted-foreground capitalize">
-                                {prod.categorySlug}
+                              <p className="text-[10px] text-muted-foreground">
+                                {prod.isAvailable ? "Available" : "Unavailable"}
                               </p>
                             </div>
                           </div>
@@ -1053,7 +1152,7 @@ function AdminPromotions() {
             <div className="p-8 text-center space-y-3 my-auto">
               <h3 className="font-display text-lg font-semibold">Promotion not found</h3>
               <p className="text-xs text-muted-foreground">
-                The selected promotion is no longer available on this device.
+                The selected promotion could not be retrieved from the database.
               </p>
               <Button variant="outline" size="sm" onClick={() => setSelectedDetailsId(null)}>
                 Close
@@ -1063,14 +1162,14 @@ function AdminPromotions() {
         </SheetContent>
       </Sheet>
 
-      {/* 7. DELETE CONFIRMATION ALERT DIALOG */}
+      {/* 8. DELETE CONFIRMATION ALERT DIALOG */}
       <AlertDialog open={deletingId !== null} onOpenChange={(open) => !open && setDeletingId(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle className="font-display">Delete promotion?</AlertDialogTitle>
             <AlertDialogDescription className="text-sm text-muted-foreground">
-              Are you sure you want to delete this promotion? This action removes the promotional
-              campaign from the current frontend demo data on this device.
+              Are you sure you want to delete this promotion? This action permanently removes the
+              promotional campaign from the café database.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

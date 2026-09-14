@@ -88,25 +88,6 @@ export function saveOrder(order: Order): Order {
   return order;
 }
 
-export function updateOrderStatus(idOrNumber: string, status: OrderStatus): Order | null {
-  if (typeof window === "undefined") return null;
-  const orders = readOrders();
-  let updated: Order | null = null;
-  const nextOrders = orders.map((o) => {
-    if (o.id === idOrNumber || o.number === idOrNumber) {
-      updated = { ...o, status };
-      return updated;
-    }
-    return o;
-  });
-
-  if (updated) {
-    writeOrders(nextOrders);
-  }
-
-  return updated;
-}
-
 export function findOrder(id: string) {
   return readOrders().find((o) => o.id === id || o.number === id);
 }

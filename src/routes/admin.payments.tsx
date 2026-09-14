@@ -6,6 +6,7 @@ import {
   Clock,
   CreditCard,
   Eye,
+  RefreshCw,
   RotateCcw,
   Search,
   ShoppingBag,
@@ -40,7 +41,12 @@ import {
 } from "@/components/ui/table";
 import { EmptyState } from "@/components/site/Section";
 import { formatETB, getProduct } from "@/lib/menu-data";
-import { methodLabels, readOrders, statusLabels, type Order } from "@/lib/orders";
+import { methodLabels, statusLabels } from "@/lib/orders";
+import {
+  calculatePaymentMetrics,
+  fetchAdminPayments,
+  type PaymentRecord,
+} from "@/lib/payments";
 
 export const Route = createFileRoute("/admin/payments")({
   head: () => ({
@@ -94,70 +100,72 @@ function PaymentStatusBadge({ status }: { status: string }) {
   );
 }
 
-function getItemCount(order: Order): number {
-  const items = Array.isArray(order.items) ? order.items : [];
+function getItemCount(payment: PaymentRecord): number {
+  const items = Array.isArray(payment.orders?.order_items) ? payment.orders!.order_items : [];
   return items.reduce((sum, item) => sum + (item.quantity || 1), 0);
 }
 
 function AdminPayments() {
-  const [orders, setOrders] = useState<Order[] | null>(null);
+  const [payments, setPayments] = useState<PaymentRecord[] | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [methodFilter, setMethodFilter] = useState<string>("all");
   const [orderTypeFilter, setOrderTypeFilter] = useState<string>("all");
   const [sortBy, setSortBy] = useState<string>("newest");
-  const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
+  const [selectedPaymentId, setSelectedPaymentId] = useState<string | null>(null);
+
+  const loadPayments = async () => {
+    setLoading(true);
+    setError(null);
+    const { data, error: err } = await fetchAdminPayments();
+    if (err) {
+      setError(err.message || "Failed to load payments from Supabase.");
+      setPayments(null);
+    } else {
+      setPayments(data || []);
+      setError(null);
+    }
+    setLoading(false);
+  };
 
   useEffect(() => {
-    // Read payments derived directly from existing customer orders in localStorage
-    setOrders(readOrders());
-
-    const handleStorage = (e: StorageEvent) => {
-      if (e.key === "neba.orders.v1" || e.key === null) {
-        setOrders(readOrders());
-      }
-    };
-
-    window.addEventListener("storage", handleStorage);
-    return () => window.removeEventListener("storage", handleStorage);
+    void loadPayments();
   }, []);
 
-  const safeOrders = orders ?? [];
+  const safePayments = payments ?? [];
 
-  // Summary Metrics derived directly from orders
-  const paidOrders = safeOrders.filter((o) => o.paymentStatus === "paid");
-  const pendingOrders = safeOrders.filter((o) => o.paymentStatus === "pending");
-  const failedOrders = safeOrders.filter((o) => o.paymentStatus === "failed");
+  // Summary Metrics derived directly from payment transaction records
+  const metrics = calculatePaymentMetrics(safePayments);
 
-  const totalRevenue = paidOrders.reduce((sum, o) => sum + (o.total || 0), 0);
-  const pendingAmount = pendingOrders.reduce((sum, o) => sum + (o.total || 0), 0);
-  const failedAmount = failedOrders.reduce((sum, o) => sum + (o.total || 0), 0);
-
-  // Distinct payment methods available in actual data
+  // Distinct payment methods available in actual database data
   const availablePaymentMethods = Array.from(
-    new Set(safeOrders.map((o) => o.paymentMethod).filter(Boolean)),
+    new Set(safePayments.map((p) => p.method).filter(Boolean)),
   );
 
-  // Filter orders
-  const filteredOrders = safeOrders.filter((o) => {
-    if (statusFilter !== "all" && o.paymentStatus !== statusFilter) {
+  // Filter payments
+  const filteredPayments = safePayments.filter((p) => {
+    if (statusFilter !== "all" && p.status !== statusFilter) {
       return false;
     }
 
-    if (methodFilter !== "all" && o.paymentMethod !== methodFilter) {
+    if (methodFilter !== "all" && p.method !== methodFilter) {
       return false;
     }
 
-    if (orderTypeFilter !== "all" && o.method !== orderTypeFilter) {
+    if (orderTypeFilter !== "all" && p.orders?.method !== orderTypeFilter) {
       return false;
     }
 
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase().trim();
-      const numMatch = (o.number || "").toLowerCase().includes(q);
-      const nameMatch = (o.customer?.name || "").toLowerCase().includes(q);
-      const phoneMatch = (o.customer?.phone || "").toLowerCase().includes(q);
-      if (!numMatch && !nameMatch && !phoneMatch) {
+      const numMatch = (p.orders?.order_number || p.order_id || "").toLowerCase().includes(q);
+      const nameMatch = (p.orders?.customer_name || "").toLowerCase().includes(q);
+      const phoneMatch = (p.orders?.customer_phone || "").toLowerCase().includes(q);
+      const methodMatch = (p.method || "").toLowerCase().includes(q);
+      const refMatch = (p.transaction_reference || "").toLowerCase().includes(q);
+      if (!numMatch && !nameMatch && !phoneMatch && !methodMatch && !refMatch) {
         return false;
       }
     }
@@ -165,25 +173,25 @@ function AdminPayments() {
     return true;
   });
 
-  // Sort orders
-  const sortedOrders = [...filteredOrders].sort((a, b) => {
+  // Sort payments
+  const sortedPayments = [...filteredPayments].sort((a, b) => {
     if (sortBy === "newest") {
-      return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+      return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
     }
     if (sortBy === "oldest") {
-      return new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime();
+      return new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime();
     }
     if (sortBy === "highest") {
-      return (b.total || 0) - (a.total || 0);
+      return (b.amount || 0) - (a.amount || 0);
     }
     if (sortBy === "lowest") {
-      return (a.total || 0) - (b.total || 0);
+      return (a.amount || 0) - (b.amount || 0);
     }
     return 0;
   });
 
-  const selectedOrder =
-    safeOrders.find((o) => o.id === selectedOrderId || o.number === selectedOrderId) ?? null;
+  const selectedPayment =
+    safePayments.find((p) => p.id === selectedPaymentId) ?? null;
 
   const resetFilters = () => {
     setSearchQuery("");
@@ -203,20 +211,32 @@ function AdminPayments() {
   return (
     <div className="space-y-8">
       {/* 1. HEADER & OVERVIEW */}
-      <header>
-        <h1 className="font-display text-3xl font-semibold">Payments management</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Monitor customer transactions, settlement states, and café revenue.
-        </p>
-        <div className="mt-2 rounded-lg border border-border/60 bg-muted/30 p-2.5 text-xs text-muted-foreground inline-flex items-center gap-2">
-          <Badge variant="outline" className="text-[10px] uppercase font-semibold">
-            Demo notice
-          </Badge>
-          <span>
-            Payment records are recorded from customer orders on this device. Live settlement will
-            connect to backend gateway verification.
-          </span>
+      <header className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h1 className="font-display text-3xl font-semibold">Payments management</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            Monitor customer transactions, settlement states, and café revenue.
+          </p>
+          <div className="mt-2 rounded-lg border border-border/60 bg-muted/30 p-2.5 text-xs text-muted-foreground inline-flex items-center gap-2">
+            <Badge variant="outline" className="text-[10px] uppercase font-semibold text-primary border-primary/30">
+              Supabase Live
+            </Badge>
+            <span>
+              Live settlement and transaction records verified from production database.
+            </span>
+          </div>
         </div>
+
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={loadPayments}
+          disabled={loading}
+          className="gap-2 text-xs"
+        >
+          <RefreshCw className={`size-3.5 ${loading ? "animate-spin" : ""}`} aria-hidden />
+          Refresh data
+        </Button>
       </header>
 
       {/* 2. SUMMARY METRIC CARDS */}
@@ -232,10 +252,10 @@ function AdminPayments() {
             </div>
           </div>
           <p className="font-display text-2xl font-bold text-foreground">
-            {formatETB(totalRevenue)}
+            {formatETB(metrics.totalRevenue)}
           </p>
           <p className="text-xs text-muted-foreground">
-            {paidOrders.length} settled {paidOrders.length === 1 ? "order" : "orders"}
+            {metrics.paidCount} settled {metrics.paidCount === 1 ? "payment" : "payments"}
           </p>
         </div>
 
@@ -250,10 +270,10 @@ function AdminPayments() {
             </div>
           </div>
           <p className="font-display text-2xl font-bold text-foreground">
-            {formatETB(totalRevenue)}
+            {formatETB(metrics.totalRevenue)}
           </p>
           <p className="text-xs text-muted-foreground">
-            {paidOrders.length} verified {paidOrders.length === 1 ? "payment" : "payments"}
+            {metrics.paidCount} verified {metrics.paidCount === 1 ? "settlement" : "settlements"}
           </p>
         </div>
 
@@ -268,10 +288,10 @@ function AdminPayments() {
             </div>
           </div>
           <p className="font-display text-2xl font-bold text-foreground">
-            {formatETB(pendingAmount)}
+            {formatETB(metrics.pendingAmount)}
           </p>
           <p className="text-xs text-muted-foreground">
-            {pendingOrders.length} awaiting settlement
+            {metrics.pendingCount} awaiting settlement
           </p>
         </div>
 
@@ -286,10 +306,10 @@ function AdminPayments() {
             </div>
           </div>
           <p className="font-display text-2xl font-bold text-foreground">
-            {formatETB(failedAmount)}
+            {formatETB(metrics.failedAmount)}
           </p>
           <p className="text-xs text-muted-foreground">
-            {failedOrders.length} rejected {failedOrders.length === 1 ? "attempt" : "attempts"}
+            {metrics.failedCount} rejected {metrics.failedCount === 1 ? "attempt" : "attempts"}
           </p>
         </div>
       </div>
@@ -371,7 +391,7 @@ function AdminPayments() {
 
           <div className="flex items-center gap-3">
             <span>
-              Showing <strong>{sortedOrders.length}</strong> of <strong>{safeOrders.length}</strong>{" "}
+              Showing <strong>{sortedPayments.length}</strong> of <strong>{safePayments.length}</strong>{" "}
               transactions
             </span>
             {isFiltered && (
@@ -389,18 +409,39 @@ function AdminPayments() {
         </div>
       </div>
 
-      {/* 4. TRANSACTIONS TABLE */}
-      {orders === null ? (
-        <div className="surface-card p-12 text-center text-sm text-muted-foreground">
-          <p className="animate-pulse">Loading payment records…</p>
+      {/* 4. ERROR STATE */}
+      {error && payments === null && (
+        <div className="surface-card p-8 text-center space-y-4 border border-destructive/30 bg-destructive/5">
+          <div className="inline-flex size-12 items-center justify-center rounded-full bg-destructive/10 text-destructive mx-auto">
+            <AlertCircle className="size-6" aria-hidden />
+          </div>
+          <div className="space-y-1">
+            <h3 className="font-display text-lg font-semibold text-foreground">
+              Unable to load payment records
+            </h3>
+            <p className="text-xs text-muted-foreground max-w-md mx-auto">
+              {error}
+            </p>
+          </div>
+          <Button onClick={loadPayments} size="sm" className="gap-2">
+            <RefreshCw className="size-3.5" aria-hidden />
+            Retry connection
+          </Button>
         </div>
-      ) : safeOrders.length === 0 ? (
+      )}
+
+      {/* 5. TRANSACTIONS TABLE / STATES */}
+      {loading && payments === null ? (
+        <div className="surface-card p-12 text-center text-sm text-muted-foreground">
+          <p className="animate-pulse">Loading payment records from database…</p>
+        </div>
+      ) : safePayments.length === 0 ? (
         <EmptyState
           icon={<CreditCard className="size-8 text-muted-foreground" />}
           title="No payment records yet"
           description="Transactions will appear here once customer orders are placed through checkout."
         />
-      ) : sortedOrders.length === 0 ? (
+      ) : sortedPayments.length === 0 ? (
         <div className="surface-card p-12 text-center space-y-3">
           <p className="text-base font-medium">No matching payments found</p>
           <p className="text-xs text-muted-foreground max-w-sm mx-auto">
@@ -445,101 +486,109 @@ function AdminPayments() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {sortedOrders.map((o) => (
-                  <TableRow
-                    key={o.id || o.number}
-                    className="cursor-pointer hover:bg-muted/40 transition-colors"
-                    onClick={() => setSelectedOrderId(o.id || o.number)}
-                  >
-                    <TableCell className="font-display font-semibold text-foreground whitespace-nowrap">
-                      {o.number}
-                    </TableCell>
-                    <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
-                      {new Date(o.createdAt).toLocaleDateString(undefined, {
-                        month: "short",
-                        day: "numeric",
-                      })}{" "}
-                      ·{" "}
-                      {new Date(o.createdAt).toLocaleTimeString([], {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
-                    </TableCell>
-                    <TableCell className="font-medium text-sm">
-                      {o.customer?.name || "Guest diner"}
-                      {o.customer?.phone && (
-                        <span className="block text-xs text-muted-foreground font-normal">
-                          {o.customer.phone}
+                {sortedPayments.map((p) => {
+                  const order = p.orders;
+                  const orderDisplay = order?.order_number || `#${p.order_id.slice(0, 4)}`;
+                  const customerName = order?.customer_name || "Guest diner";
+                  const customerPhone = order?.customer_phone;
+                  const methodText = order ? methodLabels[order.method] || order.method : "Dine-in";
+
+                  return (
+                    <TableRow
+                      key={p.id}
+                      className="cursor-pointer hover:bg-muted/40 transition-colors"
+                      onClick={() => setSelectedPaymentId(p.id)}
+                    >
+                      <TableCell className="font-display font-semibold text-foreground whitespace-nowrap">
+                        {orderDisplay}
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+                        {new Date(p.created_at).toLocaleDateString(undefined, {
+                          month: "short",
+                          day: "numeric",
+                        })}{" "}
+                        ·{" "}
+                        {new Date(p.created_at).toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </TableCell>
+                      <TableCell className="font-medium text-sm">
+                        {customerName}
+                        {customerPhone && (
+                          <span className="block text-xs text-muted-foreground font-normal">
+                            {customerPhone}
+                          </span>
+                        )}
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap">
+                        <Badge variant="outline" className="text-xs font-normal">
+                          {methodText}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-sm text-foreground whitespace-nowrap">
+                        <span className="inline-flex items-center gap-1.5">
+                          <Wallet className="size-3.5 text-muted-foreground" aria-hidden />
+                          {p.method}
                         </span>
-                      )}
-                    </TableCell>
-                    <TableCell className="whitespace-nowrap">
-                      <Badge variant="outline" className="text-xs font-normal">
-                        {methodLabels[o.method] || o.method}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-sm text-foreground whitespace-nowrap">
-                      <span className="inline-flex items-center gap-1.5">
-                        <Wallet className="size-3.5 text-muted-foreground" aria-hidden />
-                        {o.paymentMethod || "Mobile Payment"}
-                      </span>
-                    </TableCell>
-                    <TableCell className="whitespace-nowrap">
-                      <PaymentStatusBadge status={o.paymentStatus} />
-                    </TableCell>
-                    <TableCell className="text-right font-display font-semibold text-foreground whitespace-nowrap">
-                      {formatETB(o.total)}
-                    </TableCell>
-                    <TableCell className="text-right whitespace-nowrap">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-8 px-2 text-xs text-primary hover:text-primary"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSelectedOrderId(o.id || o.number);
-                        }}
-                      >
-                        <Eye className="size-3.5 mr-1" aria-hidden />
-                        Details
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap">
+                        <PaymentStatusBadge status={p.status} />
+                      </TableCell>
+                      <TableCell className="text-right font-display font-semibold text-foreground whitespace-nowrap">
+                        {formatETB(p.amount)}
+                      </TableCell>
+                      <TableCell className="text-right whitespace-nowrap">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 px-2 text-xs text-primary hover:text-primary"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedPaymentId(p.id);
+                          }}
+                        >
+                          <Eye className="size-3.5 mr-1" aria-hidden />
+                          Details
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           </div>
         </div>
       )}
 
-      {/* 5. PAYMENT DETAILS DRAWER */}
+      {/* 6. PAYMENT DETAILS DRAWER */}
       <Sheet
-        open={selectedOrderId !== null}
-        onOpenChange={(open) => !open && setSelectedOrderId(null)}
+        open={selectedPaymentId !== null}
+        onOpenChange={(open) => !open && setSelectedPaymentId(null)}
       >
         <SheetContent
           side="right"
           className="w-full sm:max-w-md md:max-w-lg overflow-y-auto p-6 flex flex-col gap-6"
         >
-          {selectedOrder ? (
+          {selectedPayment ? (
             <>
               {/* Header */}
               <SheetHeader className="text-left space-y-2 pb-4 border-b border-border">
                 <div className="flex items-center justify-between gap-2 pr-6">
                   <SheetTitle className="font-display text-2xl font-bold">
-                    Payment #{selectedOrder.number}
+                    Payment #{selectedPayment.orders?.order_number || selectedPayment.id.slice(0, 8)}
                   </SheetTitle>
-                  <PaymentStatusBadge status={selectedOrder.paymentStatus} />
+                  <PaymentStatusBadge status={selectedPayment.status} />
                 </div>
                 <SheetDescription className="text-xs text-muted-foreground">
                   Recorded on{" "}
-                  {new Date(selectedOrder.createdAt).toLocaleDateString(undefined, {
+                  {new Date(selectedPayment.created_at).toLocaleDateString(undefined, {
                     month: "short",
                     day: "numeric",
                     year: "numeric",
                   })}{" "}
                   at{" "}
-                  {new Date(selectedOrder.createdAt).toLocaleTimeString([], {
+                  {new Date(selectedPayment.created_at).toLocaleTimeString([], {
                     hour: "2-digit",
                     minute: "2-digit",
                   })}
@@ -558,17 +607,40 @@ function AdminPayments() {
                   <div className="flex items-center justify-between">
                     <span className="text-muted-foreground text-xs">Payment Method</span>
                     <span className="font-medium text-foreground">
-                      {selectedOrder.paymentMethod || "Mobile Payment"}
+                      {selectedPayment.method}
                     </span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-muted-foreground text-xs">Payment Status</span>
-                    <PaymentStatusBadge status={selectedOrder.paymentStatus} />
+                    <PaymentStatusBadge status={selectedPayment.status} />
+                  </div>
+                  {selectedPayment.transaction_reference && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground text-xs">Transaction Ref</span>
+                      <span className="font-mono text-xs text-foreground bg-muted px-2 py-0.5 rounded">
+                        {selectedPayment.transaction_reference}
+                      </span>
+                    </div>
+                  )}
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground text-xs">Settled At</span>
+                    <span className="text-xs text-foreground">
+                      {selectedPayment.paid_at
+                        ? new Date(selectedPayment.paid_at).toLocaleString([], {
+                            month: "short",
+                            day: "numeric",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })
+                        : selectedPayment.status === "paid"
+                          ? "Verified"
+                          : "Pending settlement"}
+                    </span>
                   </div>
                   <div className="flex items-center justify-between border-t border-border pt-2">
-                    <span className="text-muted-foreground text-xs font-medium">Total Paid</span>
+                    <span className="text-muted-foreground text-xs font-medium">Amount Paid</span>
                     <span className="font-display text-xl font-bold text-primary">
-                      {formatETB(selectedOrder.total)}
+                      {formatETB(selectedPayment.amount)}
                     </span>
                   </div>
                 </div>
@@ -585,18 +657,24 @@ function AdminPayments() {
                 <div className="rounded-xl border border-border bg-secondary/30 p-4 space-y-2.5 text-sm">
                   <div className="flex items-center justify-between">
                     <span className="text-muted-foreground text-xs">Order Number</span>
-                    <span className="font-semibold text-foreground">{selectedOrder.number}</span>
+                    <span className="font-semibold text-foreground">
+                      {selectedPayment.orders?.order_number || selectedPayment.order_id}
+                    </span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-muted-foreground text-xs">Fulfillment Method</span>
                     <span className="font-medium text-foreground">
-                      {methodLabels[selectedOrder.method] || selectedOrder.method}
+                      {selectedPayment.orders
+                        ? methodLabels[selectedPayment.orders.method] || selectedPayment.orders.method
+                        : "Dine-in"}
                     </span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-muted-foreground text-xs">Order Stage</span>
                     <Badge variant="outline" className="text-xs font-medium">
-                      {statusLabels[selectedOrder.status] || selectedOrder.status}
+                      {selectedPayment.orders
+                        ? statusLabels[selectedPayment.orders.status] || selectedPayment.orders.status
+                        : "Recorded"}
                     </Badge>
                   </div>
                 </div>
@@ -611,38 +689,45 @@ function AdminPayments() {
                   Customer Information
                 </h3>
                 <div className="rounded-xl border border-border bg-card/60 p-4 space-y-2.5 text-sm">
-                  {selectedOrder.customer?.name && (
-                    <div className="flex items-center justify-between">
-                      <span className="text-muted-foreground text-xs">Name</span>
-                      <span className="font-medium text-foreground">
-                        {selectedOrder.customer.name}
-                      </span>
-                    </div>
-                  )}
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground text-xs">Name</span>
+                    <span className="font-medium text-foreground">
+                      {selectedPayment.orders?.customer_name || "Guest diner"}
+                    </span>
+                  </div>
 
-                  {selectedOrder.customer?.phone && (
+                  {selectedPayment.orders?.customer_phone && (
                     <div className="flex items-center justify-between">
                       <span className="text-muted-foreground text-xs">Phone</span>
                       <span className="font-medium text-foreground">
-                        {selectedOrder.customer.phone}
+                        {selectedPayment.orders.customer_phone}
                       </span>
                     </div>
                   )}
 
-                  {selectedOrder.method === "dine-in" && selectedOrder.customer?.table && (
+                  {selectedPayment.orders?.customers?.email && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground text-xs">Email</span>
+                      <span className="font-medium text-foreground text-xs">
+                        {selectedPayment.orders.customers.email}
+                      </span>
+                    </div>
+                  )}
+
+                  {selectedPayment.orders?.method === "dine-in" && selectedPayment.orders?.table_number && (
                     <div className="flex items-center justify-between">
                       <span className="text-muted-foreground text-xs">Table</span>
                       <span className="font-semibold text-foreground">
-                        Table #{selectedOrder.customer.table}
+                        Table #{selectedPayment.orders.table_number}
                       </span>
                     </div>
                   )}
 
-                  {selectedOrder.method === "delivery" && selectedOrder.customer?.address && (
+                  {selectedPayment.orders?.method === "delivery" && selectedPayment.orders?.delivery_address && (
                     <div className="border-t border-border/50 pt-2 text-xs">
                       <span className="text-muted-foreground block mb-1">Delivery Address</span>
                       <span className="font-medium text-foreground leading-relaxed">
-                        📍 {selectedOrder.customer.address}
+                        📍 {selectedPayment.orders.delivery_address}
                       </span>
                     </div>
                   )}
@@ -659,55 +744,61 @@ function AdminPayments() {
                     Items In Order
                   </h3>
                   <span className="text-xs text-muted-foreground font-medium">
-                    {getItemCount(selectedOrder)}{" "}
-                    {getItemCount(selectedOrder) === 1 ? "item" : "items"}
+                    {getItemCount(selectedPayment)}{" "}
+                    {getItemCount(selectedPayment) === 1 ? "item" : "items"}
                   </span>
                 </div>
 
-                <ul className="divide-y divide-border rounded-xl border border-border bg-card/60 px-4">
-                  {selectedOrder.items?.map((item, idx) => {
-                    const product = getProduct(item.productId);
-                    const imageSrc = product?.image;
-                    const unitPrice = item.price || 0;
-                    const quantity = item.quantity || 1;
-                    const lineTotal = unitPrice * quantity;
+                {selectedPayment.orders?.order_items && selectedPayment.orders.order_items.length > 0 ? (
+                  <ul className="divide-y divide-border rounded-xl border border-border bg-card/60 px-4">
+                    {selectedPayment.orders.order_items.map((item, idx) => {
+                      const localProduct = getProduct(item.product_id);
+                      const imageSrc = item.products?.image_url || localProduct?.image;
+                      const unitPrice = item.unit_price || 0;
+                      const quantity = item.quantity || 1;
+                      const lineTotal = item.line_total || unitPrice * quantity;
 
-                    return (
-                      <li
-                        key={item.productId || idx}
-                        className="flex items-center justify-between gap-3 py-3"
-                      >
-                        <div className="flex items-center gap-3 min-w-0">
-                          {imageSrc ? (
-                            <img
-                              src={imageSrc}
-                              alt={item.name || "Product image"}
-                              className="size-11 rounded-lg object-cover shrink-0 bg-muted"
-                              loading="lazy"
-                              width={44}
-                              height={44}
-                            />
-                          ) : (
-                            <div className="flex size-11 items-center justify-center rounded-lg bg-muted text-muted-foreground shrink-0">
-                              <ShoppingBag className="size-5" aria-hidden />
+                      return (
+                        <li
+                          key={item.id || item.product_id || idx}
+                          className="flex items-center justify-between gap-3 py-3"
+                        >
+                          <div className="flex items-center gap-3 min-w-0">
+                            {imageSrc ? (
+                              <img
+                                src={imageSrc}
+                                alt={item.name || "Product image"}
+                                className="size-11 rounded-lg object-cover shrink-0 bg-muted"
+                                loading="lazy"
+                                width={44}
+                                height={44}
+                              />
+                            ) : (
+                              <div className="flex size-11 items-center justify-center rounded-lg bg-muted text-muted-foreground shrink-0">
+                                <ShoppingBag className="size-5" aria-hidden />
+                              </div>
+                            )}
+                            <div className="min-w-0">
+                              <p className="font-medium text-foreground text-sm truncate">
+                                {item.name || "Unknown item"}
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                {quantity} × {formatETB(unitPrice)}
+                              </p>
                             </div>
-                          )}
-                          <div className="min-w-0">
-                            <p className="font-medium text-foreground text-sm truncate">
-                              {item.name || "Unknown item"}
-                            </p>
-                            <p className="text-xs text-muted-foreground">
-                              {quantity} × {formatETB(unitPrice)}
-                            </p>
                           </div>
-                        </div>
-                        <span className="font-semibold text-foreground text-sm whitespace-nowrap">
-                          {formatETB(lineTotal)}
-                        </span>
-                      </li>
-                    );
-                  })}
-                </ul>
+                          <span className="font-semibold text-foreground text-sm whitespace-nowrap">
+                            {formatETB(lineTotal)}
+                          </span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                ) : (
+                  <div className="rounded-xl border border-border bg-card/60 p-4 text-center text-xs text-muted-foreground">
+                    No itemized order lines recorded for this transaction.
+                  </div>
+                )}
               </section>
 
               {/* Financial Calculation */}
@@ -722,43 +813,41 @@ function AdminPayments() {
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Subtotal</span>
                     <span className="font-medium text-foreground">
-                      {formatETB(selectedOrder.subtotal)}
+                      {formatETB(selectedPayment.orders?.subtotal || 0)}
                     </span>
                   </div>
 
-                  {selectedOrder.delivery > 0 && (
+                  {(selectedPayment.orders?.delivery_fee || 0) > 0 && (
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Delivery fee</span>
                       <span className="font-medium text-foreground">
-                        {formatETB(selectedOrder.delivery)}
+                        {formatETB(selectedPayment.orders!.delivery_fee)}
                       </span>
                     </div>
                   )}
 
-                  {selectedOrder.discount > 0 && (
+                  {(selectedPayment.orders?.discount_amount || 0) > 0 && (
                     <div className="flex justify-between text-success font-medium">
                       <span>Discount</span>
-                      <span>-{formatETB(selectedOrder.discount)}</span>
+                      <span>-{formatETB(selectedPayment.orders!.discount_amount)}</span>
                     </div>
                   )}
 
                   <div className="flex justify-between border-t border-border pt-2 font-display text-lg font-bold">
-                    <span>Final Total</span>
-                    <span className="text-primary">{formatETB(selectedOrder.total)}</span>
+                    <span>Order Total</span>
+                    <span className="text-foreground">
+                      {formatETB(selectedPayment.orders?.total_amount || selectedPayment.amount)}
+                    </span>
                   </div>
                 </div>
               </section>
 
-              {/* Demo Notice & Close */}
-              <div className="pt-2 mt-auto border-t border-border space-y-3">
-                <p className="text-[11px] text-muted-foreground bg-muted/40 p-2.5 rounded-lg leading-relaxed">
-                  Notice: Payment record is verified from client simulation. Real bank and mobile
-                  money settlement will be confirmed by backend webhook verification.
-                </p>
+              {/* Close button */}
+              <div className="pt-2 mt-auto border-t border-border">
                 <Button
                   variant="outline"
                   className="w-full"
-                  onClick={() => setSelectedOrderId(null)}
+                  onClick={() => setSelectedPaymentId(null)}
                 >
                   Close
                 </Button>
@@ -768,9 +857,9 @@ function AdminPayments() {
             <div className="p-8 text-center space-y-3 my-auto">
               <h3 className="font-display text-lg font-semibold">Payment record not found</h3>
               <p className="text-xs text-muted-foreground">
-                The selected payment could not be retrieved from this device.
+                The selected payment could not be retrieved from the database.
               </p>
-              <Button variant="outline" size="sm" onClick={() => setSelectedOrderId(null)}>
+              <Button variant="outline" size="sm" onClick={() => setSelectedPaymentId(null)}>
                 Close
               </Button>
             </div>

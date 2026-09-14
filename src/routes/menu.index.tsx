@@ -1,7 +1,15 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { MenuBrowser } from "@/components/site/MenuBrowser";
+import { fetchCategories, fetchProducts } from "@/services/api";
 
 export const Route = createFileRoute("/menu/")({
+  loader: async () => {
+    const [categories, products] = await Promise.all([
+      fetchCategories().catch(() => []),
+      fetchProducts().catch(() => []),
+    ]);
+    return { categories, products };
+  },
   head: () => ({
     meta: [
       { title: "Menu — NEBA Café" },
@@ -14,5 +22,10 @@ export const Route = createFileRoute("/menu/")({
       { property: "og:description", content: "Burgers, pizza, sides and drinks, freshly prepared." },
     ],
   }),
-  component: () => <MenuBrowser />,
+  component: MenuIndexPage,
 });
+
+function MenuIndexPage() {
+  const { categories, products } = Route.useLoaderData();
+  return <MenuBrowser initialCategories={categories} initialProducts={products} />;
+}

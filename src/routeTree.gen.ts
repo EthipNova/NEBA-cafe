@@ -18,6 +18,7 @@ import { Route as CheckoutRouteImport } from './routes/checkout'
 import { Route as ContactRouteImport } from './routes/contact'
 import { Route as OrdersRouteImport } from './routes/orders'
 import { Route as AdminIndexRouteImport } from './routes/admin.index'
+import { Route as AdminAccountRouteImport } from './routes/admin.account'
 import { Route as AdminAvailabilityRouteImport } from './routes/admin.availability'
 import { Route as AdminCategoriesRouteImport } from './routes/admin.categories'
 import { Route as AdminCustomersRouteImport } from './routes/admin.customers'
@@ -74,6 +75,11 @@ const OrdersRoute = OrdersRouteImport.update({
 const AdminIndexRoute = AdminIndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminAccountRoute = AdminAccountRouteImport.update({
+  id: '/account',
+  path: '/account',
   getParentRoute: () => AdminRoute,
 } as any)
 const AdminAvailabilityRoute = AdminAvailabilityRouteImport.update({
@@ -146,6 +152,7 @@ export interface FileRoutesByFullPath {
   '/checkout': typeof CheckoutRoute
   '/contact': typeof ContactRoute
   '/orders': typeof OrdersRoute
+  '/admin/account': typeof AdminAccountRoute
   '/admin/availability': typeof AdminAvailabilityRoute
   '/admin/categories': typeof AdminCategoriesRoute
   '/admin/customers': typeof AdminCustomersRoute
@@ -168,6 +175,7 @@ export interface FileRoutesByTo {
   '/checkout': typeof CheckoutRoute
   '/contact': typeof ContactRoute
   '/orders': typeof OrdersRoute
+  '/admin/account': typeof AdminAccountRoute
   '/admin/availability': typeof AdminAvailabilityRoute
   '/admin/categories': typeof AdminCategoriesRoute
   '/admin/customers': typeof AdminCustomersRoute
@@ -192,6 +200,7 @@ export interface FileRoutesById {
   '/checkout': typeof CheckoutRoute
   '/contact': typeof ContactRoute
   '/orders': typeof OrdersRoute
+  '/admin/account': typeof AdminAccountRoute
   '/admin/availability': typeof AdminAvailabilityRoute
   '/admin/categories': typeof AdminCategoriesRoute
   '/admin/customers': typeof AdminCustomersRoute
@@ -217,6 +226,7 @@ export interface FileRouteTypes {
     | '/checkout'
     | '/contact'
     | '/orders'
+    | '/admin/account'
     | '/admin/availability'
     | '/admin/categories'
     | '/admin/customers'
@@ -239,6 +249,7 @@ export interface FileRouteTypes {
     | '/checkout'
     | '/contact'
     | '/orders'
+    | '/admin/account'
     | '/admin/availability'
     | '/admin/categories'
     | '/admin/customers'
@@ -262,6 +273,7 @@ export interface FileRouteTypes {
     | '/checkout'
     | '/contact'
     | '/orders'
+    | '/admin/account'
     | '/admin/availability'
     | '/admin/categories'
     | '/admin/customers'
@@ -357,6 +369,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminIndexRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/admin/account': {
+      id: '/admin/account'
+      path: '/account'
+      fullPath: '/admin/account'
+      preLoaderRoute: typeof AdminAccountRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/admin/availability': {
       id: '/admin/availability'
       path: '/availability'
@@ -445,6 +464,7 @@ declare module '@tanstack/react-router' {
 }
 
 interface AdminRouteChildren {
+  AdminAccountRoute: typeof AdminAccountRoute
   AdminAvailabilityRoute: typeof AdminAvailabilityRoute
   AdminCategoriesRoute: typeof AdminCategoriesRoute
   AdminCustomersRoute: typeof AdminCustomersRoute
@@ -457,6 +477,7 @@ interface AdminRouteChildren {
 }
 
 const AdminRouteChildren: AdminRouteChildren = {
+  AdminAccountRoute: AdminAccountRoute,
   AdminAvailabilityRoute: AdminAvailabilityRoute,
   AdminCategoriesRoute: AdminCategoriesRoute,
   AdminCustomersRoute: AdminCustomersRoute,
