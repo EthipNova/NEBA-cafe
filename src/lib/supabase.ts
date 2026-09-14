@@ -65,6 +65,8 @@ if (typeof window !== "undefined" && typeof window.localStorage !== "undefined")
   }
 }
 
+export { supabaseUrl, supabaseKey };
+
 export const supabase = createClient<Database>(supabaseUrl, supabaseKey, {
   auth: {
     storage:
@@ -76,3 +78,20 @@ export const supabase = createClient<Database>(supabaseUrl, supabaseKey, {
     detectSessionInUrl: true,
   },
 });
+
+/**
+ * Creates a request-scoped Supabase client that forwards an authenticated user's bearer token
+ * to PostgREST so that Row-Level Security (RLS) policies evaluate auth.uid() correctly.
+ */
+export function createScopedClient(token: string) {
+  return createClient<Database>(supabaseUrl, supabaseKey, {
+    auth: {
+      persistSession: false,
+    },
+    global: {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    },
+  });
+}

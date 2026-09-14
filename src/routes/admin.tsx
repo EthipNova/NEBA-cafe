@@ -48,6 +48,7 @@ const nav = [
   { to: "/admin/products", label: "Products", icon: Package, exact: false },
   { to: "/admin/categories", label: "Categories", icon: FolderTree, exact: false },
   { to: "/admin/availability", label: "Availability", icon: ToggleLeft, exact: false },
+  { to: "/admin/content", label: "Website Content", icon: Globe, exact: false },
   { to: "/admin/settings", label: "Settings", icon: Settings, exact: false },
   { to: "/admin/account", label: "Account", icon: UserCheck, exact: false },
 ] as const;
