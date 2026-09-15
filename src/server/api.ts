@@ -5,18 +5,20 @@ import {
   deleteProduct,
   deletePromotion,
   getCategories,
+  getCustomers,
   getOrderById,
   getOrders,
   getProductById,
   getProducts,
   getPromotions,
   getSettings,
+  updateOrderPayment,
   updateOrderStatus,
   updateProduct,
   updatePromotions,
   updateSettings,
 } from "./db";
-import type { OrderStatus } from "@/lib/orders";
+import type { Order, OrderStatus } from "@/lib/orders";
 import type { Promotion } from "@/lib/promotions";
 
 const CORS_HEADERS: Record<string, string> = {
@@ -71,6 +73,20 @@ export async function handleApiRequest(request: Request): Promise<Response> {
       if (method === "GET") {
         const categories = await getCategories();
         return json(categories);
+      }
+      return json({ error: "Method Not Allowed" }, 405);
+    }
+
+    /* ----------------------------------------------------------------------
+       1b. Customers: GET /api/customers
+       Returns every customer with their full order history.
+       Runs server-side through serverSupabase (service-role key) so the
+       browser never needs direct Supabase access for admin customer data.
+       ---------------------------------------------------------------------- */
+    if (pathname === "/api/customers") {
+      if (method === "GET") {
+        const customers = await getCustomers();
+        return json(customers);
       }
       return json({ error: "Method Not Allowed" }, 405);
     }
@@ -144,7 +160,8 @@ export async function handleApiRequest(request: Request): Promise<Response> {
        ---------------------------------------------------------------------- */
     if (pathname === "/api/orders") {
       if (method === "GET") {
-        const orders = await getOrders();
+        const phone = url.searchParams.get("phone") || undefined;
+        const orders = await getOrders(phone ? { phone } : undefined);
         return json(orders);
       }
 
@@ -160,6 +177,25 @@ export async function handleApiRequest(request: Request): Promise<Response> {
       return json({ error: "Method Not Allowed" }, 405);
     }
 
+    const orderPaymentMatch = pathname.match(/^\/api\/orders\/([^/]+)\/payment$/);
+    if (orderPaymentMatch) {
+      const orderId = decodeURIComponent(orderPaymentMatch[1]!);
+      if (method === "PATCH" || method === "POST" || method === "PUT") {
+        const body = await request.json().catch(() => null);
+        if (!body || typeof body !== "object" || !body.paymentStatus) {
+          return badRequest("Field 'paymentStatus' ('paid', 'pending', or 'failed') is required.");
+        }
+        const updated = await updateOrderPayment(orderId, {
+          paymentStatus: body.paymentStatus,
+          paymentMethod: body.paymentMethod,
+          transactionReference: body.transactionReference,
+        });
+        if (!updated) return notFound(`Order '${orderId}' not found`);
+        return json(updated);
+      }
+      return json({ error: "Method Not Allowed" }, 405);
+    }
+
     const orderMatch = pathname.match(/^\/api\/orders\/([^/]+)$/);
     if (orderMatch) {
       const orderId = decodeURIComponent(orderMatch[1]!);
@@ -172,10 +208,25 @@ export async function handleApiRequest(request: Request): Promise<Response> {
 
       if (method === "PATCH" || method === "PUT") {
         const body = await request.json().catch(() => null);
-        if (!body || typeof body !== "object" || !body.status) {
-          return badRequest("Field 'status' is required to update order status.");
+        if (!body || typeof body !== "object") {
+          return badRequest("Invalid request body");
         }
-        const updated = await updateOrderStatus(orderId, body.status as OrderStatus);
+
+        let updated: Order | null = null;
+        if (body.status) {
+          updated = await updateOrderStatus(orderId, body.status as OrderStatus);
+        }
+        if (body.paymentStatus) {
+          updated = await updateOrderPayment(orderId, {
+            paymentStatus: body.paymentStatus,
+            paymentMethod: body.paymentMethod,
+            transactionReference: body.transactionReference,
+          });
+        }
+        if (!body.status && !body.paymentStatus) {
+          return badRequest("Field 'status' or 'paymentStatus' is required to update order.");
+        }
+
         if (!updated) return notFound(`Order '${orderId}' not found`);
         return json(updated);
       }

@@ -7,7 +7,15 @@
  */
 
 import { registerProduct, registerProducts, type Category, type Product } from "@/lib/menu-data";
-import type { Order, OrderStatus } from "@/lib/orders";
+import {
+  findOrder,
+  readOrders,
+  saveOrder,
+  writeOrders,
+  type Order,
+  type OrderItem,
+  type OrderStatus,
+} from "@/lib/orders";
 import type { Promotion, DiscountType, PromotionStatus } from "@/lib/promotions";
 import { DEFAULT_SETTINGS, type NebaSettings } from "@/lib/settings";
 import { supabase } from "@/lib/supabase";
@@ -124,7 +132,7 @@ function getFallbackImage(name: string, categorySlug?: string): string {
 export async function fetchCategories(): Promise<Category[]> {
   try {
     const data = await request<Category[]>("/api/categories");
-    if (data && data.length > 0) return data;
+    if (Array.isArray(data)) return data;
   } catch {
     // Fallback directly to Supabase client
   }
@@ -135,7 +143,7 @@ export async function fetchCategories(): Promise<Category[]> {
       .select("id, slug, name, tagline, is_active")
       .order("name", { ascending: true });
 
-    if (!error && data && data.length > 0) {
+    if (!error && Array.isArray(data)) {
       return data.map((c: any) => ({
         id: c.id,
         slug: c.slug,
@@ -177,7 +185,7 @@ export async function fetchProducts(options?: FetchProductsOptions): Promise<Pro
 
   try {
     const products = await request<Product[]>(`/api/products${query ? `?${query}` : ""}`);
-    if (products && products.length > 0) {
+    if (Array.isArray(products)) {
       registerProducts(products);
       return products;
     }
@@ -215,7 +223,7 @@ export async function fetchProducts(options?: FetchProductsOptions): Promise<Pro
 
     const { data, error } = await queryBuilder;
 
-    if (!error && data && data.length > 0) {
+    if (!error && Array.isArray(data)) {
       let products: Product[] = data.map((raw: any) => {
         const cat = Array.isArray(raw.categories) ? raw.categories[0] : raw.categories;
         const catSlug = cat?.slug || raw.category_slug || "other";
@@ -532,48 +540,247 @@ export async function updateSettings(data: Partial<NebaSettings>): Promise<NebaS
   });
 }
 
+function normalizeServiceOrder(raw: any): Order {
+  const rawItems = Array.isArray(raw?.order_items) ? raw.order_items : [];
+  const items: OrderItem[] = rawItems.map((item: any) => ({
+    productId: item.product_id,
+    name: item.name || item.products?.name || "Menu Item",
+    quantity: Number(item.quantity) || 1,
+    price: Number(item.unit_price) || 0,
+  }));
+
+  const paymentRaw = Array.isArray(raw?.payments) ? raw.payments[0] : raw?.payments;
+  const paymentStatus = paymentRaw?.status || "paid";
+  const paymentMethod = paymentRaw?.method || "Mobile Payment";
+
+  return {
+    id: raw.id,
+    number: raw.order_number,
+    createdAt: raw.created_at,
+    method: raw.method || "dine-in",
+    status: raw.status || "received",
+    paymentStatus:
+      paymentStatus === "paid" || paymentStatus === "pending" || paymentStatus === "failed"
+        ? paymentStatus
+        : "paid",
+    paymentMethod,
+    customer: {
+      name: raw.customer_name || "Guest",
+      phone: raw.customer_phone || "",
+      table: raw.table_number || undefined,
+      address: raw.delivery_address || undefined,
+    },
+    items,
+    subtotal: Number(raw.subtotal) || 0,
+    discount: Number(raw.discount_amount) || 0,
+    delivery: Number(raw.delivery_fee) || 0,
+    total: Number(raw.total_amount) || 0,
+  };
+}
+
 /* ==========================================================================
    5. Orders
    ========================================================================== */
 
 export interface CreateOrderPayload {
-  lines: { productId: string; quantity: number }[];
+  lines: { productId: string; name?: string | undefined; quantity: number; price?: number | undefined }[];
   method: Order["method"];
   customer: Order["customer"];
-  paymentMethod: string;
+  paymentMethod?: string | undefined;
+  paymentStatus?: "paid" | "pending" | "failed" | undefined;
   delivery?: number | undefined;
+  discount?: number | undefined;
 }
 
 /**
- * Fetches all recorded customer orders.
+ * Fetches all recorded customer orders (optionally filtered by customer phone).
  */
-export async function fetchOrders(): Promise<Order[]> {
-  return request<Order[]>("/api/orders");
+export async function fetchOrders(phone?: string): Promise<Order[]> {
+  const query = phone ? `?phone=${encodeURIComponent(phone)}` : "";
+  try {
+    const data = await request<Order[]>(`/api/orders${query}`);
+    if (Array.isArray(data)) return data;
+  } catch {
+    // Fallback directly to Supabase client
+  }
+
+  try {
+    const { data, error } = await (supabase.from("orders" as any) as any)
+      .select(`
+        id,
+        order_number,
+        customer_name,
+        customer_phone,
+        method,
+        status,
+        table_number,
+        delivery_address,
+        subtotal,
+        discount_amount,
+        delivery_fee,
+        total_amount,
+        created_at,
+        updated_at,
+        order_items (
+          id,
+          order_id,
+          product_id,
+          name,
+          quantity,
+          unit_price,
+          line_total,
+          products (
+            id,
+            name,
+            image_url,
+            price
+          )
+        ),
+        payments (
+          id,
+          order_id,
+          method,
+          status,
+          amount
+        )
+      `)
+      .order("created_at", { ascending: false });
+
+    if (!error && Array.isArray(data)) {
+      let orders = data.map(normalizeServiceOrder);
+      if (phone) {
+        const p = phone.replace(/[\s\-().+]/g, "").slice(-9);
+        orders = orders.filter((o: Order) =>
+          o.customer.phone.replace(/[\s\-().+]/g, "").includes(p),
+        );
+      }
+      return orders;
+    }
+  } catch (err) {
+    console.warn("fetchOrders Supabase fallback failed:", err);
+  }
+
+  return [];
 }
 
 /**
  * Fetches a single order by ID or order number.
  */
 export async function fetchOrderById(id: string): Promise<Order> {
-  return request<Order>(`/api/orders/${encodeURIComponent(id)}`);
+  try {
+    const order = await request<Order>(`/api/orders/${encodeURIComponent(id)}`);
+    if (order) return order;
+  } catch {
+    // Fallback directly to Supabase client
+  }
+
+  try {
+    const { data, error } = await (supabase.from("orders" as any) as any)
+      .select(`
+        id,
+        order_number,
+        customer_name,
+        customer_phone,
+        method,
+        status,
+        table_number,
+        delivery_address,
+        subtotal,
+        discount_amount,
+        delivery_fee,
+        total_amount,
+        created_at,
+        updated_at,
+        order_items (
+          id,
+          order_id,
+          product_id,
+          name,
+          quantity,
+          unit_price,
+          line_total,
+          products (
+            id,
+            name,
+            image_url,
+            price
+          )
+        ),
+        payments (
+          id,
+          order_id,
+          method,
+          status,
+          amount
+        )
+      `)
+      .or(`id.eq.${id},order_number.eq.${id}`)
+      .maybeSingle();
+
+    if (!error && data) {
+      return normalizeServiceOrder(data);
+    }
+  } catch (err) {
+    console.warn(`fetchOrderById Supabase fallback failed for ${id}:`, err);
+  }
+
+  const found = findOrder(id);
+  if (found) return found;
+
+  throw new ApiError(`Order '${id}' not found`, 404);
 }
 
 /**
  * Submits a new customer order.
  */
 export async function createOrder(orderData: CreateOrderPayload): Promise<Order> {
-  return request<Order>("/api/orders", {
+  const created = await request<Order>("/api/orders", {
     method: "POST",
     body: JSON.stringify(orderData),
   });
+  if (created) {
+    saveOrder(created);
+    return created;
+  }
+
+  throw new ApiError("Failed to create order on server", 500);
 }
 
 /**
  * Updates order status (e.g., 'received', 'preparing', 'ready', 'delivered').
  */
 export async function updateOrderStatus(id: string, status: OrderStatus): Promise<Order> {
-  return request<Order>(`/api/orders/${encodeURIComponent(id)}`, {
+  const updated = await request<Order>(`/api/orders/${encodeURIComponent(id)}`, {
     method: "PATCH",
     body: JSON.stringify({ status }),
   });
+  if (updated) {
+    saveOrder(updated);
+    return updated;
+  }
+
+  throw new ApiError(`Order '${id}' not found`, 404);
+}
+
+/**
+ * Updates order payment status and transaction details.
+ */
+export async function updateOrderPayment(
+  id: string,
+  data: {
+    paymentStatus: "paid" | "pending" | "failed";
+    paymentMethod?: string | undefined;
+    transactionReference?: string | undefined;
+  },
+): Promise<Order> {
+  const updated = await request<Order>(`/api/orders/${encodeURIComponent(id)}/payment`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+  if (updated) {
+    saveOrder(updated);
+    return updated;
+  }
+
+  throw new ApiError(`Order '${id}' payment update failed`, 404);
 }

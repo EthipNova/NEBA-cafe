@@ -1,5 +1,47 @@
-import { supabase } from "./supabase";
 import type { Order, OrderItem, OrderMethod, OrderStatus } from "./orders";
+
+/**
+ * Fetches all customer profiles with order history from the server API.
+ * Routes through GET /api/customers → server/api.ts → serverSupabase (service-role).
+ * The browser never touches Supabase directly for admin customer data.
+ */
+export async function fetchAdminCustomers(): Promise<{
+  data: DerivedCustomer[] | null;
+  error: Error | null;
+}> {
+  try {
+    const response = await fetch("/api/customers", {
+      method: "GET",
+      headers: { "Content-Type": "application/json" },
+    });
+
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      return {
+        data: null,
+        error: new Error(
+          (body as any)?.message || `GET /api/customers returned HTTP ${response.status}`,
+        ),
+      };
+    }
+
+    const raw: unknown[] = await response.json();
+    if (!Array.isArray(raw)) {
+      return { data: [], error: null };
+    }
+
+    const customers: DerivedCustomer[] = raw.map(normalizeCustomerRecord);
+    return { data: customers, error: null };
+  } catch (err: any) {
+    return {
+      data: null,
+      error:
+        err instanceof Error
+          ? err
+          : new Error("An unexpected error occurred while fetching customers"),
+    };
+  }
+}
 
 export type DerivedCustomer = {
   id: string;
@@ -280,82 +322,8 @@ function normalizeCustomerRecord(rawCustomer: any): DerivedCustomer {
 }
 
 /**
- * Fetches all customer profiles joined with their orders, order items, payments,
- * and saved addresses from the real Supabase database using the authenticated client.
- */
-export async function fetchAdminCustomers(): Promise<{
-  data: DerivedCustomer[] | null;
-  error: Error | null;
-}> {
-  try {
-    const { data, error } = await (supabase.from("customers" as any) as any)
-      .select(`
-        id,
-        name,
-        phone,
-        email,
-        created_at,
-        updated_at,
-        orders (
-          id,
-          order_number,
-          method,
-          status,
-          table_number,
-          delivery_address,
-          subtotal,
-          discount_amount,
-          delivery_fee,
-          total_amount,
-          created_at,
-          updated_at,
-          order_items (
-            id,
-            name,
-            quantity,
-            unit_price,
-            line_total
-          ),
-          payments (
-            id,
-            status,
-            method,
-            amount,
-            created_at
-          )
-        ),
-        customer_addresses (
-          id,
-          address_line,
-          is_default,
-          created_at
-        )
-      `)
-      .order("created_at", { ascending: false });
-
-    if (error) {
-      return { data: null, error: new Error(error.message) };
-    }
-
-    const customers: DerivedCustomer[] = (Array.isArray(data) ? data : []).map(
-      normalizeCustomerRecord,
-    );
-
-    return { data: customers, error: null };
-  } catch (err: any) {
-    return {
-      data: null,
-      error:
-        err instanceof Error
-          ? err
-          : new Error("An unexpected error occurred while fetching customers"),
-    };
-  }
-}
-
-/**
  * Pure aggregation function: Groups raw orders into unique customer records.
- * Retained for backward-compatibility.
+ * Retained for backward-compatibility with any component that passes raw orders.
  */
 export function aggregateCustomers(orders: Order[]): DerivedCustomer[] {
   if (!Array.isArray(orders) || orders.length === 0) {

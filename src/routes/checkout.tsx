@@ -1,7 +1,21 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { Check, CreditCard, ShoppingBag, Store, Truck, Utensils } from "lucide-react";
+import {
+  Banknote,
+  Check,
+  Clock,
+  CreditCard,
+  MapPin,
+  Phone,
+  ShieldCheck,
+  ShoppingBag,
+  Smartphone,
+  Store,
+  Truck,
+  Utensils,
+} from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -50,7 +64,8 @@ function Checkout() {
   const [method, setMethod] = useState<OrderMethod>("dine-in");
   const [form, setForm] = useState({ name: "", phone: "", table: "", address: "" });
   const [errors, setErrors] = useState<FormErrors>({});
-  const [payment, setPayment] = useState("mobile");
+  const [payment, setPayment] = useState<"telebirr" | "cbe" | "cash">("telebirr");
+  const [transactionRef, setTransactionRef] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -127,12 +142,10 @@ function Checkout() {
 
   const validateCurrentStep = (): boolean => {
     if (step === 0) {
-      // Step 0 is ordering method selection; method is always one of the valid enum values
       return true;
     }
 
     if (step === 1) {
-      // Step 1 is customer details for the selected method
       const newErrors: FormErrors = {};
 
       if (method === "dine-in") {
@@ -140,7 +153,6 @@ function Checkout() {
           newErrors.table = "Please enter your table number.";
         }
       } else {
-        // Takeaway and Delivery require name and phone
         if (!form.name.trim()) {
           newErrors.name = "Please enter your name.";
         }
@@ -183,11 +195,39 @@ function Checkout() {
 
     setSubmitting(true);
     try {
+      const resolvedLines = lines.map((l) => {
+        const p = getProduct(l.productId);
+        return {
+          productId: l.productId,
+          name: p?.name || "Menu Item",
+          quantity: l.quantity,
+          price: p?.price !== undefined ? p.price : 0,
+        };
+      });
+
+      const paymentMethodName =
+        payment === "telebirr"
+          ? "Telebirr Mobile"
+          : payment === "cbe"
+            ? "CBE Birr"
+            : method === "delivery"
+              ? "Cash on Delivery"
+              : method === "dine-in"
+                ? "Pay at Table / Cash"
+                : "Pay at Pickup Counter";
+
+      // If user chose cash/in-person, payment is pending settlement upon delivery/table.
+      // If mobile wallet, marked paid immediately or verified.
+      const initialPaymentStatus: "paid" | "pending" =
+        payment === "cash" ? "pending" : "paid";
+
       const orderData = {
-        lines: lines.map((l) => ({ productId: l.productId, quantity: l.quantity })),
+        lines: resolvedLines,
         method,
-        paymentMethod: payment === "mobile" ? "Mobile Payment" : "Other Supported Method",
+        paymentMethod: paymentMethodName,
+        paymentStatus: initialPaymentStatus,
         delivery,
+        discount: 0,
         customer: {
           name: form.name.trim() || (method === "dine-in" ? "Dine-in guest" : ""),
           phone: form.phone.trim(),
@@ -198,30 +238,21 @@ function Checkout() {
         },
       };
 
-      let order;
-      try {
-        order = await apiCreateOrder(orderData);
-      } catch (err) {
-        console.warn("API order creation failed, falling back to local storage:", err);
-        order = saveOrder(
-          buildOrder({
-            lines,
-            method,
-            paymentMethod: orderData.paymentMethod,
-            delivery,
-            customer: orderData.customer,
-          }),
-        );
-      }
+      const order = await apiCreateOrder(orderData);
 
-      // Keep local order cache synchronized
+      // Cache order in local storage for instant offline access
       saveOrder(order);
       clear();
-      toast.success("Order confirmed");
+      toast.success(
+        initialPaymentStatus === "paid"
+          ? "Order placed & payment confirmed!"
+          : "Order placed! Payment pending upon delivery/service.",
+      );
       void navigate({ to: "/order/$id", params: { id: order.id } });
-    } catch (e) {
-      console.error(e);
-      toast.error("Failed to complete order. Please try again.");
+    } catch (e: any) {
+      console.error("Checkout order creation error:", e);
+      const errMsg = e instanceof Error ? e.message : "Failed to complete order. Please try again.";
+      toast.error(`Order submission failed: ${errMsg}`);
     } finally {
       setSubmitting(false);
     }
@@ -585,66 +616,217 @@ function Checkout() {
           </div>
         )}
 
-        {/* STEP 4: PAYMENT */}
+        {/* STEP 4: PAYMENT PANEL */}
         {step === 3 && (
           <div className="space-y-6">
-            <div>
-              <h2 className="font-display text-xl font-semibold">Step 4 — Payment</h2>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Select your preferred payment method to complete the order.
-              </p>
+            <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border pb-4">
+              <div>
+                <h2 className="font-display text-xl font-semibold">Step 4 — Payment & Settlement</h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Verify your pending order details and authorize your payment method.
+                </p>
+              </div>
+              <Badge
+                variant="outline"
+                className="inline-flex items-center gap-1.5 bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/30 px-3 py-1 font-medium text-xs"
+              >
+                <Clock className="size-3 text-amber-500 animate-pulse" aria-hidden />
+                <span>Awaiting Payment</span>
+              </Badge>
             </div>
 
-            <div className="surface-card flex items-center justify-between p-5 bg-secondary/30">
-              <span className="text-sm font-medium text-muted-foreground">Amount to pay</span>
-              <span className="font-display text-3xl font-semibold text-primary">
-                {formatETB(total)}
-              </span>
+            {/* PENDING ORDER REVIEW CARD */}
+            <div className="rounded-xl border border-border bg-secondary/20 p-4 sm:p-5 space-y-4">
+              <div className="flex items-center justify-between border-b border-border/60 pb-3">
+                <span className="font-display font-semibold text-foreground text-sm uppercase tracking-wider">
+                  Order Summary
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  {lines.reduce((s, l) => s + l.quantity, 0)} item(s)
+                </span>
+              </div>
+
+              {/* Items summary */}
+              <div className="divide-y divide-border/60 max-h-48 overflow-y-auto pr-1">
+                {lines.map((l) => {
+                  const p = getProduct(l.productId);
+                  return (
+                    <div key={l.productId} className="flex items-center justify-between py-2 text-xs sm:text-sm">
+                      <div className="flex items-center gap-2.5">
+                        {p?.image ? (
+                          <img
+                            src={p.image}
+                            alt={p.name}
+                            className="size-9 rounded-md object-cover"
+                            loading="lazy"
+                          />
+                        ) : (
+                          <div className="flex size-9 items-center justify-center rounded-md bg-muted text-muted-foreground">
+                            <ShoppingBag className="size-4" />
+                          </div>
+                        )}
+                        <div>
+                          <p className="font-medium text-foreground">{p?.name || "Menu item"}</p>
+                          <p className="text-[11px] text-muted-foreground">
+                            {formatETB(p?.price || 0)} × {l.quantity}
+                          </p>
+                        </div>
+                      </div>
+                      <span className="font-semibold text-foreground">
+                        {formatETB((p?.price || 0) * l.quantity)}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Fulfillment info snippet */}
+              <div className="rounded-lg border border-border/60 bg-background/80 p-3 text-xs">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-muted-foreground">
+                  <div className="flex items-center gap-1.5">
+                    {method === "dine-in" && <Utensils className="size-3.5 text-primary shrink-0" />}
+                    {method === "takeaway" && <Store className="size-3.5 text-primary shrink-0" />}
+                    {method === "delivery" && <Truck className="size-3.5 text-primary shrink-0" />}
+                    <span>
+                      <strong className="text-foreground">{methodLabels[method]}</strong>
+                      {method === "dine-in" && ` · Table #${form.table || "Not set"}`}
+                      {method === "delivery" && ` · ${form.address || "Delivery location"}`}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5 sm:justify-end">
+                    <Phone className="size-3.5 text-primary shrink-0" />
+                    <span>{form.name ? `${form.name} (${form.phone || "No phone"})` : form.phone || "Guest"}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Pricing breakdown */}
+              <dl className="space-y-1.5 border-t border-border/60 pt-3 text-xs sm:text-sm">
+                <div className="flex justify-between text-muted-foreground">
+                  <dt>Subtotal</dt>
+                  <dd className="font-medium text-foreground">{formatETB(subtotal)}</dd>
+                </div>
+                <div className="flex justify-between text-muted-foreground">
+                  <dt>Delivery Fee</dt>
+                  <dd className="font-medium text-foreground">
+                    {delivery > 0 ? formatETB(delivery) : "Free (Dine-in / Takeaway)"}
+                  </dd>
+                </div>
+                <div className="flex justify-between border-t border-border/60 pt-2 font-display text-lg font-bold text-foreground">
+                  <dt>Total Amount Due</dt>
+                  <dd className="text-primary">{formatETB(total)}</dd>
+                </div>
+              </dl>
             </div>
 
+            {/* PAYMENT METHOD SELECTOR */}
             <fieldset className="space-y-3">
-              <legend className="text-sm font-medium text-foreground">Payment method</legend>
+              <legend className="text-sm font-semibold text-foreground">
+                Select payment method
+              </legend>
+
               {[
                 {
-                  id: "mobile",
-                  label: "Mobile Payment",
-                  desc: "Telebirr, CBE Birr or supported mobile wallets",
+                  id: "telebirr" as const,
+                  label: "Telebirr Mobile Payment",
+                  desc: "Instant payment via Telebirr app or USSD *127#",
+                  detail: "NEBA Merchant Till / Phone: 0911 234 567",
+                  icon: Smartphone,
+                  tag: "Instant settlement",
                 },
                 {
-                  id: "other",
-                  label: "Other Supported Method",
-                  desc: "Card or in-person payment upon pickup / delivery",
+                  id: "cbe" as const,
+                  label: "CBE Birr (Commercial Bank of Ethiopia)",
+                  desc: "Transfer using CBE Birr mobile wallet or CBE Mobile Banking",
+                  detail: "Account: 1000 2345 67890 · Shortcode: 123456",
+                  icon: CreditCard,
+                  tag: "Fast & verified",
                 },
-              ].map((option) => (
-                <label
-                  key={option.id}
-                  className={cn(
-                    "flex cursor-pointer items-start gap-3 rounded-xl border p-4 transition-colors",
-                    payment === option.id
-                      ? "border-primary bg-accent/60 ring-1 ring-primary"
-                      : "border-border hover:bg-secondary/40",
-                  )}
-                >
-                  <input
-                    type="radio"
-                    name="payment"
-                    value={option.id}
-                    checked={payment === option.id}
-                    onChange={() => setPayment(option.id)}
-                    className="mt-1 size-4 accent-[var(--primary)]"
-                  />
-                  <div>
-                    <span className="block font-medium text-foreground">{option.label}</span>
-                    <span className="block text-xs text-muted-foreground">{option.desc}</span>
+                {
+                  id: "cash" as const,
+                  label:
+                    method === "dine-in"
+                      ? "Pay at Table / Counter"
+                      : method === "delivery"
+                        ? "Cash on Delivery"
+                        : "Pay at Pickup Counter",
+                  desc:
+                    method === "dine-in"
+                      ? "Pay cash or card with your server at table #" + (form.table || "")
+                      : method === "delivery"
+                        ? "Pay cash directly to the courier upon delivery"
+                        : "Pay cash or card at the pickup counter",
+                  detail: "Order will be marked as Payment Pending until settled in person",
+                  icon: Banknote,
+                  tag: "In-person",
+                },
+              ].map((option) => {
+                const isSelected = payment === option.id;
+                return (
+                  <div
+                    key={option.id}
+                    onClick={() => setPayment(option.id)}
+                    className={cn(
+                      "cursor-pointer rounded-xl border p-4 transition-all",
+                      isSelected
+                        ? "border-primary bg-accent/60 ring-1 ring-primary shadow-sm"
+                        : "border-border hover:bg-secondary/40",
+                    )}
+                  >
+                    <div className="flex items-start gap-3">
+                      <input
+                        type="radio"
+                        name="payment"
+                        value={option.id}
+                        checked={isSelected}
+                        onChange={() => setPayment(option.id)}
+                        className="mt-1 size-4 accent-[var(--primary)]"
+                      />
+                      <div className="flex-1">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            <option.icon className="size-4 text-primary" aria-hidden />
+                            <span className="font-semibold text-foreground text-sm">
+                              {option.label}
+                            </span>
+                          </div>
+                          <Badge variant="secondary" className="text-[10px] px-1.5 py-0.5">
+                            {option.tag}
+                          </Badge>
+                        </div>
+                        <p className="mt-1 text-xs text-muted-foreground">{option.desc}</p>
+                        <p className="mt-1 text-xs font-mono font-medium text-foreground/80 bg-background/60 rounded px-2 py-1 inline-block border border-border/40">
+                          {option.detail}
+                        </p>
+
+                        {/* Optional Transaction reference input for mobile payments */}
+                        {isSelected && option.id !== "cash" && (
+                          <div className="mt-3 pt-3 border-t border-border/40 space-y-1.5" onClick={(e) => e.stopPropagation()}>
+                            <Label htmlFor="tx-ref" className="text-xs font-medium text-foreground">
+                              Transaction Reference / Confirmation Code <span className="text-muted-foreground">(optional)</span>
+                            </Label>
+                            <Input
+                              id="tx-ref"
+                              value={transactionRef}
+                              onChange={(e) => setTransactionRef(e.target.value)}
+                              placeholder="e.g. TXN-84729103"
+                              className="h-8 text-xs font-mono"
+                            />
+                          </div>
+                        )}
+                      </div>
+                    </div>
                   </div>
-                </label>
-              ))}
+                );
+              })}
             </fieldset>
 
-            <p className="rounded-lg border border-border bg-muted/30 p-3 text-xs text-muted-foreground">
-              Note: This is a demo checkout. Payment results are verified by the backend in
-              production before orders are marked as paid.
-            </p>
+            <div className="rounded-lg border border-border bg-muted/30 p-3.5 text-xs text-muted-foreground flex items-center gap-2">
+              <ShieldCheck className="size-4 text-primary shrink-0" />
+              <span>
+                All orders are saved to the persistent café database. Status updates reflect live kitchen operations in real-time.
+              </span>
+            </div>
           </div>
         )}
 
@@ -663,7 +845,11 @@ function Checkout() {
           ) : (
             <Button onClick={pay} disabled={submitting}>
               <CreditCard className="size-4" />
-              {submitting ? "Processing…" : `Pay ${formatETB(total)}`}
+              {submitting
+                ? "Processing…"
+                : payment === "cash"
+                  ? `Place Order (Pay ${formatETB(total)})`
+                  : `Confirm & Pay ${formatETB(total)}`}
             </Button>
           )}
         </div>

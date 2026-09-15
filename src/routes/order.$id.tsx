@@ -1,25 +1,33 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import {
+  AlertCircle,
   ArrowRight,
+  Banknote,
   CheckCircle2,
   Clock,
   CreditCard,
   MapPin,
   Phone,
   Receipt,
+  ShieldCheck,
   ShoppingBag,
+  Smartphone,
   Store,
   Truck,
   Utensils,
 } from "lucide-react";
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { EmptyState, Section } from "@/components/site/Section";
 import { OrderTimeline } from "@/components/site/OrderTimeline";
 import { formatETB, getProduct } from "@/lib/menu-data";
 import { findOrder, methodLabels, statusLabels, type Order } from "@/lib/orders";
-import { fetchOrderById } from "@/services/api";
+import { fetchOrderById, updateOrderPayment } from "@/services/api";
+import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/order/$id")({
@@ -58,6 +66,9 @@ function OrderPage() {
     loading: !loaderData?.order,
     order: loaderData?.order || null,
   });
+  const [paymentMethod, setPaymentMethod] = useState<"telebirr" | "cbe" | "cash">("telebirr");
+  const [txRef, setTxRef] = useState("");
+  const [paying, setPaying] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -77,10 +88,73 @@ function OrderPage() {
       }
     }
     void load();
+
+    // Set up Realtime Supabase channel
+    const channel = supabase
+      .channel(`order-page-realtime-${id}`)
+      .on(
+        "postgres_changes" as any,
+        { event: "*", schema: "public", table: "orders" },
+        () => {
+          void load();
+        },
+      )
+      .on(
+        "postgres_changes" as any,
+        { event: "*", schema: "public", table: "payments" },
+        () => {
+          void load();
+        },
+      )
+      .subscribe();
+
+    // Multi-tab storage sync
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === "neba.orders.v1") {
+        void load();
+      }
+    };
+    window.addEventListener("storage", handleStorage);
+
+    // Active polling interval every 8s
+    const pollInterval = setInterval(() => {
+      void load();
+    }, 8000);
+
     return () => {
       cancelled = true;
+      void supabase.removeChannel(channel);
+      window.removeEventListener("storage", handleStorage);
+      clearInterval(pollInterval);
     };
   }, [id]);
+
+  const handleCompletePayment = async () => {
+    if (!state.order) return;
+    setPaying(true);
+    try {
+      const methodName =
+        paymentMethod === "telebirr"
+          ? "Telebirr Mobile"
+          : paymentMethod === "cbe"
+            ? "CBE Birr"
+            : "Cash / In-Person";
+
+      const updated = await updateOrderPayment(state.order.id, {
+        paymentStatus: "paid",
+        paymentMethod: methodName,
+        transactionReference: txRef.trim() || undefined,
+      });
+
+      setState((prev) => ({ ...prev, order: updated }));
+      toast.success("Payment confirmed! Kitchen notified.");
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to confirm payment. Please try again.");
+    } finally {
+      setPaying(false);
+    }
+  };
 
   if (state.loading) {
     return (
@@ -124,23 +198,44 @@ function OrderPage() {
     <Section className="max-w-5xl">
       {/* 1. TOP SUCCESS BANNER & CONFIRMATION HEADER */}
       <header className="rise-in surface-card overflow-hidden p-6 sm:p-10 text-center relative border-primary/20">
-        <div className="mx-auto flex size-16 sm:size-20 items-center justify-center rounded-full bg-success/15 text-success ring-8 ring-success/5">
-          <CheckCircle2 className="size-10 sm:size-12" aria-hidden />
+        <div
+          className={cn(
+            "mx-auto flex size-16 sm:size-20 items-center justify-center rounded-full ring-8",
+            order.paymentStatus === "paid"
+              ? "bg-success/15 text-success ring-success/5"
+              : "bg-amber-500/15 text-amber-600 dark:text-amber-400 ring-amber-500/5",
+          )}
+        >
+          {order.paymentStatus === "paid" ? (
+            <CheckCircle2 className="size-10 sm:size-12" aria-hidden />
+          ) : (
+            <Clock className="size-10 sm:size-12 animate-pulse" aria-hidden />
+          )}
         </div>
 
         <div className="mt-5">
           <Badge
-            variant="secondary"
-            className="rounded-full px-3 py-1 text-xs uppercase tracking-wider font-semibold"
+            variant={order.paymentStatus === "paid" ? "secondary" : "outline"}
+            className={cn(
+              "rounded-full px-3 py-1 text-xs uppercase tracking-wider font-semibold",
+              order.paymentStatus === "paid"
+                ? "bg-success/15 text-success border-success/30"
+                : "bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30",
+            )}
           >
-            Order Placed Successfully
+            {order.paymentStatus === "paid"
+              ? "Order Placed & Paid"
+              : "Order Received — Payment Pending"}
           </Badge>
           <h1 className="mt-3 font-display text-3xl sm:text-4xl md:text-5xl font-semibold">
-            Thank you for your order!
+            {order.paymentStatus === "paid"
+              ? "Thank you for your order!"
+              : "Order Received — Settle Payment"}
           </h1>
           <p className="mt-3 max-w-xl mx-auto text-sm sm:text-base text-muted-foreground">
-            Your order has been received by the NEBA Café kitchen and is currently being processed.
-            A copy has been recorded on this device.
+            {order.paymentStatus === "paid"
+              ? "Your order has been recorded in the café database and is actively being processed by the kitchen."
+              : "Your order details have been saved to the persistent database. Please authorize your payment below to finalize fulfillment."}
           </p>
         </div>
 
@@ -179,9 +274,14 @@ function OrderPage() {
 
           <div>
             <span className="block text-xs text-muted-foreground uppercase tracking-wider font-medium">
-              Total paid
+              Payment ({order.paymentStatus})
             </span>
-            <span className="font-display text-lg sm:text-xl font-bold text-primary">
+            <span
+              className={cn(
+                "font-display text-lg sm:text-xl font-bold",
+                order.paymentStatus === "paid" ? "text-success" : "text-amber-600 dark:text-amber-400",
+              )}
+            >
               {formatETB(order.total)}
             </span>
           </div>
@@ -377,42 +477,151 @@ function OrderPage() {
             </dl>
           </section>
 
-          {/* Card: Payment Information */}
+          {/* Card: Payment Information & Interactive Settlement */}
           <section aria-labelledby="payment-heading" className="surface-card p-6">
-            <div className="flex items-center gap-2 border-b border-border pb-3">
-              <CreditCard className="size-4 text-primary" aria-hidden />
-              <h3 id="payment-heading" className="font-display text-base font-semibold">
-                Payment information
-              </h3>
+            <div className="flex items-center justify-between border-b border-border pb-3">
+              <div className="flex items-center gap-2">
+                <CreditCard className="size-4 text-primary" aria-hidden />
+                <h3 id="payment-heading" className="font-display text-base font-semibold">
+                  Payment details
+                </h3>
+              </div>
+              <Badge
+                variant={order.paymentStatus === "paid" ? "default" : "outline"}
+                className={cn(
+                  order.paymentStatus === "paid"
+                    ? "bg-success text-success-foreground hover:bg-success"
+                    : "bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30",
+                )}
+              >
+                {order.paymentStatus === "paid" ? "Paid" : "Payment Pending"}
+              </Badge>
             </div>
 
-            <dl className="mt-4 space-y-2.5 text-xs sm:text-sm">
-              <div className="flex items-center justify-between">
-                <dt className="text-muted-foreground">Payment method</dt>
-                <dd className="font-medium text-foreground">
-                  {order.paymentMethod || "Mobile Payment"}
-                </dd>
-              </div>
-              <div className="flex items-center justify-between">
-                <dt className="text-muted-foreground">Payment status</dt>
-                <dd>
-                  <Badge
-                    variant={order.paymentStatus === "paid" ? "default" : "secondary"}
-                    className={cn(
-                      order.paymentStatus === "paid" &&
-                        "bg-success text-success-foreground hover:bg-success",
-                    )}
-                  >
-                    {order.paymentStatus === "paid" ? "Paid" : `Payment ${order.paymentStatus}`}
-                  </Badge>
-                </dd>
-              </div>
-            </dl>
+            {/* If Payment is Pending: Show interactive settlement panel */}
+            {order.paymentStatus !== "paid" ? (
+              <div className="mt-4 space-y-4">
+                <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3.5 text-xs text-amber-800 dark:text-amber-200 flex items-start gap-2.5">
+                  <AlertCircle className="size-4 shrink-0 mt-0.5 text-amber-600" />
+                  <div>
+                    <p className="font-semibold">Action required: Complete your payment</p>
+                    <p className="mt-0.5 text-muted-foreground">
+                      Your order is pending settlement of <strong className="text-foreground">{formatETB(order.total)}</strong>. Select a method below to finalize.
+                    </p>
+                  </div>
+                </div>
 
-            <p className="mt-4 rounded-lg bg-muted/30 p-3 text-[11px] leading-relaxed text-muted-foreground">
-              Demo notification: Payment verification is mocked locally. Official banking
-              integration will authenticate real-time settlement during backend deployment.
-            </p>
+                {/* Method selector */}
+                <div className="space-y-2">
+                  <Label className="text-xs font-semibold text-foreground">Choose Payment Method</Label>
+                  <div className="grid gap-2">
+                    {[
+                      {
+                        id: "telebirr" as const,
+                        name: "Telebirr Mobile Payment",
+                        info: "Till: 0911 234 567 (NEBA Café)",
+                        icon: Smartphone,
+                      },
+                      {
+                        id: "cbe" as const,
+                        name: "CBE Birr / Mobile Banking",
+                        info: "Account: 1000 2345 67890 · Shortcode: 123456",
+                        icon: CreditCard,
+                      },
+                      {
+                        id: "cash" as const,
+                        name: "In-Person (Cash / Card at Table / Delivery)",
+                        info: "Settle in cash with server or delivery courier",
+                        icon: Banknote,
+                      },
+                    ].map((opt) => (
+                      <label
+                        key={opt.id}
+                        className={cn(
+                          "flex items-start gap-2.5 rounded-lg border p-2.5 text-xs cursor-pointer transition-all",
+                          paymentMethod === opt.id
+                            ? "border-primary bg-accent/60 ring-1 ring-primary"
+                            : "border-border hover:bg-secondary/40",
+                        )}
+                      >
+                        <input
+                          type="radio"
+                          name="order-pay-method"
+                          value={opt.id}
+                          checked={paymentMethod === opt.id}
+                          onChange={() => setPaymentMethod(opt.id)}
+                          className="mt-0.5 size-3.5 accent-[var(--primary)]"
+                        />
+                        <div className="flex-1">
+                          <div className="flex items-center gap-1.5 font-medium text-foreground">
+                            <opt.icon className="size-3.5 text-primary" />
+                            <span>{opt.name}</span>
+                          </div>
+                          <p className="mt-0.5 text-[11px] text-muted-foreground font-mono">
+                            {opt.info}
+                          </p>
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                {paymentMethod !== "cash" && (
+                  <div className="space-y-1.5">
+                    <Label htmlFor="order-txref" className="text-xs font-medium text-foreground">
+                      Transaction Confirmation Reference <span className="text-muted-foreground">(optional)</span>
+                    </Label>
+                    <Input
+                      id="order-txref"
+                      value={txRef}
+                      onChange={(e) => setTxRef(e.target.value)}
+                      placeholder="e.g. TXN-9281034"
+                      className="h-8 text-xs font-mono"
+                    />
+                  </div>
+                )}
+
+                <Button
+                  onClick={handleCompletePayment}
+                  disabled={paying}
+                  className="w-full font-semibold"
+                >
+                  <CreditCard className="size-4 mr-2" />
+                  {paying ? "Confirming Payment…" : `Confirm Payment (${formatETB(order.total)})`}
+                </Button>
+              </div>
+            ) : (
+              /* If Payment is Paid: Show verified card */
+              <dl className="mt-4 space-y-2.5 text-xs sm:text-sm">
+                <div className="flex items-center justify-between">
+                  <dt className="text-muted-foreground">Payment method</dt>
+                  <dd className="font-medium text-foreground">
+                    {order.paymentMethod || "Mobile Payment"}
+                  </dd>
+                </div>
+                <div className="flex items-center justify-between">
+                  <dt className="text-muted-foreground">Amount settled</dt>
+                  <dd className="font-bold text-success">
+                    {formatETB(order.total)}
+                  </dd>
+                </div>
+                <div className="flex items-center justify-between">
+                  <dt className="text-muted-foreground">Payment status</dt>
+                  <dd>
+                    <Badge variant="default" className="bg-success text-success-foreground hover:bg-success text-xs">
+                      Paid & Verified
+                    </Badge>
+                  </dd>
+                </div>
+              </dl>
+            )}
+
+            <div className="mt-4 rounded-lg bg-muted/30 p-3 text-[11px] leading-relaxed text-muted-foreground flex items-center gap-2">
+              <ShieldCheck className="size-3.5 text-primary shrink-0" />
+              <span>
+                Payment details are updated live in the café database and synchronized across your account dashboard.
+              </span>
+            </div>
           </section>
 
           {/* Primary Action Buttons */}

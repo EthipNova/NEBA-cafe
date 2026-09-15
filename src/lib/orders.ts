@@ -93,34 +93,49 @@ export function findOrder(id: string) {
 }
 
 export function buildOrder(input: {
-  lines: { productId: string; quantity: number }[];
+  lines: { productId: string; name?: string; quantity: number; price?: number }[];
   method: OrderMethod;
   customer: Order["customer"];
   paymentMethod: string;
   delivery: number;
+  paymentStatus?: "paid" | "pending" | "failed";
+  discount?: number;
 }): Order {
   const items: OrderItem[] = input.lines.flatMap((line) => {
     const product = getProduct(line.productId);
-    if (!product) return [];
+    const name = line.name || product?.name || "Menu Item";
+    const price =
+      line.price !== undefined
+        ? Number(line.price)
+        : product?.price !== undefined
+          ? Number(product.price)
+          : 0;
     return [
-      { productId: product.id, name: product.name, quantity: line.quantity, price: product.price },
+      {
+        productId: product?.id || line.productId,
+        name,
+        quantity: Math.max(1, Number(line.quantity) || 1),
+        price,
+      },
     ];
   });
   const subtotal = items.reduce((s, i) => s + i.price * i.quantity, 0);
+  const discount = Math.max(0, Number(input.discount) || 0);
+  const total = Math.max(0, subtotal - discount + input.delivery);
   const number = `#${1000 + (readOrders().length % 900) + Math.floor(Math.random() * 90)}`;
   return {
-    id: `ord_${Date.now().toString(36)}`,
+    id: `ord_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
     number,
     createdAt: new Date().toISOString(),
     method: input.method,
     status: "received",
-    paymentStatus: "paid",
+    paymentStatus: input.paymentStatus || "paid",
     paymentMethod: input.paymentMethod,
     customer: input.customer,
     items,
     subtotal,
-    discount: 0,
+    discount,
     delivery: input.delivery,
-    total: subtotal + input.delivery,
+    total,
   };
 }
