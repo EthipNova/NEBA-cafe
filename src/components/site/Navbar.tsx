@@ -17,7 +17,7 @@ export function Navbar() {
   const [open, setOpen] = useState(false);
 
   return (
-    <header className="sticky top-0 z-50 border-b border-border/70 bg-background/85 backdrop-blur">
+    <header className="sticky top-0 z-50 border-b border-border/70 bg-background/90 shadow-[0_1px_20px_-14px_oklch(0_0_0_/_0.35)] backdrop-blur-md">
       <nav
         aria-label="Main navigation"
         className="mx-auto flex h-16 w-full max-w-7xl items-center justify-between gap-4 px-4 sm:px-6"
@@ -35,8 +35,8 @@ export function Navbar() {
               <Link
                 to={l.to}
                 activeOptions={{ exact: l.to === "/" }}
-                activeProps={{ className: "text-foreground bg-secondary" }}
-                className="rounded-full px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+                activeProps={{ className: "bg-secondary text-foreground shadow-sm shadow-primary/10" }}
+                className="rounded-full px-4 py-2 text-sm font-medium text-muted-foreground transition-all hover:bg-secondary/80 hover:text-foreground"
               >
                 {l.label}
               </Link>

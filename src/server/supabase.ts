@@ -18,9 +18,11 @@ import { createClient } from "@supabase/supabase-js";
 
 const envProc = typeof process !== "undefined" ? process.env : ({} as Record<string, string | undefined>);
 
-const supabaseUrl: string =
-  envProc["SUPABASE_URL"] ||
-  "https://evpigfgyjedevisqoche.supabase.co";
+const supabaseUrl: string = envProc["SUPABASE_URL"] || "";
+
+if (!supabaseUrl) {
+  console.error("[server-supabase] CRITICAL: SUPABASE_URL is not set in the server environment.");
+}
 
 // Prefer the service-role key (bypasses RLS) over the anon/publishable key.
 const serviceRoleKey: string | undefined = envProc["SUPABASE_SERVICE_ROLE_KEY"];

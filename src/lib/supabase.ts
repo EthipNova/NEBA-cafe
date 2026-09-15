@@ -36,12 +36,12 @@ const envMeta = import.meta.env;
 const envProc = typeof process !== "undefined" ? process.env : undefined;
 
 const supabaseUrl =
-  (envMeta["SUPABASE_URL"] as string | undefined) ||
+  (envMeta["VITE_SUPABASE_URL"] as string | undefined) ||
   (envProc ? envProc["SUPABASE_URL"] : undefined) ||
   "";
 
 const supabaseKey =
-  (envMeta["SUPABASE_KEY"] as string | undefined) ||
+  (envMeta["VITE_SUPABASE_PUBLISHABLE_KEY"] as string | undefined) ||
   (envProc ? envProc["SUPABASE_KEY"] : undefined) ||
   "";
 

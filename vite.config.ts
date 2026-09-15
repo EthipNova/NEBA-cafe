@@ -138,7 +138,7 @@ export default defineConfig({
   vite: {
     plugins: [apiDevMiddleware()],
     // Restrict client-side exposed env vars so SUPABASE_SERVICE_ROLE_KEY is never leaked to client bundles
-    envPrefix: ["VITE_", "SUPABASE_URL", "SUPABASE_KEY", "SUPABASE_ANON_KEY"],
+    envPrefix: ["VITE_"],
   },
   tanstackStart: {
     // Redirect TanStack Start's bundled server entry to src/server.ts (our SSR error wrapper).

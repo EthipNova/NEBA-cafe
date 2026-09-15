@@ -1,24 +1,29 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
 import {
   ArrowRight,
   CheckCircle2,
   Clock,
   Coffee,
-  CreditCard,
   Flame,
-  Leaf,
   MapPin,
-  Package,
   Pizza,
-  Radar,
-  ShoppingBag,
   Sparkles,
   Store,
   Truck,
   Utensils,
 } from "lucide-react";
 import { useEffect, useState } from "react";
-import hero from "@/assets/hero.jpg";
+import { createFileRoute, Link } from "@tanstack/react-router";
+import hero from "@/assets/grilled-beef-hero.png";
+import burgersImage from "@/assets/burgers.png";
+import clubSandwichImage from "@/assets/club-sandwich.png";
+import easyOrderingImage from "@/assets/easy-ordering.png";
+import freshMenuImage from "@/assets/fresh-menu.png";
+import orderTrackingImage from "@/assets/order-tracking.png";
+import pizzaImage from "@/assets/pizza.png";
+import securePaymentsImage from "@/assets/secure-payments.png";
+import shiroImage from "@/assets/shiro.png";
+import simpleCheckoutImage from "@/assets/simple-checkout.png";
+import softDrinkImage from "@/assets/soft-drink.png";
 import { Button } from "@/components/ui/button";
 import { Section, SectionHeading } from "@/components/site/Section";
 import { ProductCard } from "@/components/site/ProductCard";
@@ -49,16 +54,16 @@ export const Route = createFileRoute("/")({
   },
   head: () => ({
     meta: [
-      { title: "NEBA Café — Good Food. Great Moments. Simply NEBA." },
+      { title: "NEBA CafÃ© â€” Good Food. Great Moments. Simply NEBA." },
       {
         name: "description",
         content:
-          "Order burgers, pizza, sides and drinks from NEBA Café. Browse the menu, pay securely and track your order in real time.",
+          "Order burgers, pizza, sides and drinks from NEBA CafÃ©. Browse the menu, pay securely and track your order in real time.",
       },
-      { property: "og:title", content: "NEBA Café — Good Food. Great Moments." },
+      { property: "og:title", content: "NEBA CafÃ© â€” Good Food. Great Moments." },
       {
         property: "og:description",
-        content: "A modern café ordering experience, powered by ORNIX-TECH.",
+        content: "A modern cafÃ© ordering experience, powered by ORNIX-TECH.",
       },
     ],
   }),
@@ -67,36 +72,49 @@ export const Route = createFileRoute("/")({
 
 const benefits = [
   {
-    icon: ShoppingBag,
+    image: easyOrderingImage,
+    imageAlt: "Easy online food ordering",
     title: "Easy Ordering",
     text: "Browse and order without unnecessary steps.",
     highlight: false,
   },
   {
-    icon: Leaf,
+    image: freshMenuImage,
+    imageAlt: "Fresh food ingredients",
     title: "Fresh Menu",
     text: "See products and availability in real time.",
     highlight: false,
   },
   {
-    icon: Package,
+    image: simpleCheckoutImage,
+    imageAlt: "Simple checkout",
     title: "Simple Checkout",
     text: "A clear and convenient ordering process.",
     highlight: false,
   },
   {
-    icon: Radar,
+    image: orderTrackingImage,
+    imageAlt: "Order tracking and delivery",
     title: "Order Tracking",
     text: "Know what is happening with your order.",
     highlight: true,
   },
   {
-    icon: CreditCard,
+    image: securePaymentsImage,
+    imageAlt: "Secure payments",
     title: "Secure Payments",
     text: "Handled through secure payment infrastructure.",
     highlight: false,
   },
 ];
+
+const categoryImages: Record<string, { src: string; alt: string }> = {
+  burgers: { src: burgersImage, alt: "Burger" },
+  "club-sandwich": { src: clubSandwichImage, alt: "Club sandwich" },
+  pizza: { src: pizzaImage, alt: "Pizza" },
+  shiro: { src: shiroImage, alt: "Shiro" },
+  "soft-drink": { src: softDrinkImage, alt: "Soft drink" },
+};
 
 const journey = [
   { step: "01", title: "Browse", text: "Explore the menu." },
@@ -111,8 +129,8 @@ const methods = [
   {
     icon: Utensils,
     title: "Dine-in",
-    text: "Enjoy your meal at the café.",
-    badge: "Café Atmosphere",
+    text: "Enjoy your meal at the cafÃ©.",
+    badge: "CafÃ© Atmosphere",
   },
   {
     icon: Store,
@@ -137,7 +155,6 @@ function getCategoryIcon(slug: string) {
     return Coffee;
   return Sparkles;
 }
-
 function Home() {
   const loaderData = Route.useLoaderData();
   const [categoriesList, setCategoriesList] = useState<Category[]>(
@@ -219,13 +236,13 @@ function Home() {
   return (
     <>
       {/* ----------------------------------------------------------------------
-          SECTION 1 — EDITORIAL HERO
+          SECTION 1 â€” EDITORIAL HERO
           Asymmetric desktop layout with 3D showcase card and glass pill badge
          ---------------------------------------------------------------------- */}
       <section className="relative isolate overflow-hidden">
         <img
           src={heroImgSrc}
-          alt="Freshly prepared burger meal at NEBA Café"
+          alt="Freshly prepared burger meal at NEBA CafÃ©"
           width={1440}
           height={1800}
           className="absolute inset-0 size-full object-cover"
@@ -239,7 +256,7 @@ function Home() {
             <div className="flex flex-col justify-center space-y-6 text-espresso-foreground lg:col-span-7">
               <div className="rise-in inline-flex items-center gap-2.5 rounded-full border border-espresso-foreground/20 bg-espresso/50 px-4 py-1.5 text-xs font-semibold uppercase tracking-widest text-espresso-foreground backdrop-blur-md shadow-xs w-fit">
                 <span className="size-2 rounded-full bg-primary animate-pulse" aria-hidden />
-                NEBA CAFÉ · POWERED BY ORNIX-TECH
+                NEBA CAFÃ‰ Â· POWERED BY ORNIX-TECH
               </div>
 
               <h1 className="rise-in [animation-delay:100ms] font-display text-4xl font-semibold leading-[1.05] tracking-tight sm:text-5xl lg:text-6xl text-espresso-foreground max-w-2xl">
@@ -247,7 +264,7 @@ function Home() {
               </h1>
 
               <p className="rise-in [animation-delay:200ms] max-w-xl text-base leading-relaxed opacity-90 sm:text-lg">
-                Discover your favorite meals, order with ease, and enjoy a seamless café experience
+                Discover your favorite meals, order with ease, and enjoy a seamless cafÃ© experience
                 powered by modern technology.
               </p>
 
@@ -290,7 +307,7 @@ function Home() {
                 <div className="relative aspect-[4/3] w-full overflow-hidden rounded-2xl border border-espresso-foreground/20 bg-espresso/60 shadow-[var(--shadow-lift)] backdrop-blur-md transition-all duration-700 ease-out [transform-style:preserve-3d] group-hover:[transform:rotateX(2deg)_rotateY(-2deg)_translateY(-4px)] motion-reduce:transform-none">
                   <img
                     src={heroImgSrc}
-                    alt="Freshly prepared culinary dishes at NEBA Café"
+                    alt="Freshly prepared culinary dishes at NEBA CafÃ©"
                     width={800}
                     height={600}
                     className="size-full object-cover transition-transform duration-700 ease-out group-hover:scale-[1.04] motion-reduce:transform-none"
@@ -308,52 +325,33 @@ function Home() {
         </div>
       </section>
 
-      {/* ----------------------------------------------------------------------
-          SECTION 2 — CATEGORIES
-          Tactile category cards with icon capsules and directional hover
-         ---------------------------------------------------------------------- */}
-      <Section className="py-16 sm:py-20">
-        <SectionHeading
-          eyebrow="Categories"
-          title="Find what you're craving"
-          description="Handcrafted recipes made fresh daily with ingredients we're proud of."
-        />
-
-        <div className="mt-10 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
-          {categoriesList.map((c) => {
-            const IconComponent = getCategoryIcon(c.slug);
-            return (
-              <Link
-                key={c.id}
-                to="/menu/$category"
-                params={{ category: c.slug }}
-                className="group relative surface-card hover-lift flex flex-col justify-between overflow-hidden p-6 transition-all duration-300 [perspective:800px] hover:border-primary/30"
-              >
-                <div className="flex items-start justify-between">
-                  <div className="flex size-11 items-center justify-center rounded-xl border border-primary/20 bg-primary/10 text-primary shadow-xs transition-transform duration-500 group-hover:scale-110 motion-reduce:transform-none">
-                    <IconComponent className="size-5" aria-hidden />
-                  </div>
-                  <span className="flex size-7 items-center justify-center rounded-full bg-secondary text-muted-foreground transition-all duration-300 group-hover:bg-primary group-hover:text-primary-foreground group-hover:translate-x-1">
-                    <ArrowRight className="size-3.5" aria-hidden />
-                  </span>
-                </div>
-
-                <div className="mt-5">
-                  <h3 className="font-display text-lg font-semibold tracking-tight text-foreground">
-                    {c.name}
-                  </h3>
-                  <p className="mt-1 line-clamp-1 text-xs text-muted-foreground sm:text-sm">
-                    {c.tagline}
-                  </p>
-                </div>
-              </Link>
-            );
-          })}
+      <Section>
+        <SectionHeading eyebrow="Categories" title="Find what you're craving" />
+        <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+          {categoriesList.map((c) => (
+            <Link
+              key={c.id}
+              to="/menu/$category"
+              params={{ category: c.slug }}
+              className="surface-card hover-lift flex flex-col gap-1 p-5"
+            >
+              {categoryImages[c.slug] && (
+                <img
+                  src={categoryImages[c.slug].src}
+                  alt={categoryImages[c.slug].alt}
+                  className="mb-3 h-16 w-full object-contain object-left"
+                />
+              )}
+              <span className="font-display text-lg font-semibold">{c.name}</span>
+              <span className="text-sm text-muted-foreground">{c.tagline}</span>
+              <ArrowRight className="mt-4 size-4 text-primary" />
+            </Link>
+          ))}
         </div>
       </Section>
 
       {/* ----------------------------------------------------------------------
-          SECTION 3 — FEATURED MENU
+          SECTION 3 â€” FEATURED MENU
           Enhanced hierarchy & spacing around the existing ProductCard
          ---------------------------------------------------------------------- */}
       <Section className="pt-0 pb-16 sm:pb-20">
@@ -383,7 +381,7 @@ function Home() {
       </Section>
 
       {/* ----------------------------------------------------------------------
-          SECTION 4 — PROMOTION
+          SECTION 4 â€” PROMOTION
           Editorial culinary campaign showcase with floating discount badge
          ---------------------------------------------------------------------- */}
       {promoProduct && (
@@ -463,7 +461,7 @@ function Home() {
       )}
 
       {/* ----------------------------------------------------------------------
-          SECTION 5 — WHY NEBA
+          SECTION 5 â€” WHY NEBA
           Editorial feature matrix with watermark numerals and tracking highlight
          ---------------------------------------------------------------------- */}
       <div className="border-y border-border/60 bg-cream py-16 sm:py-20 md:py-24">
@@ -474,22 +472,21 @@ function Home() {
             align="center"
             description="A thoughtfully designed digital ordering experience built for speed, transparency, and delight."
           />
-
           <div className="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-5">
             {benefits.map((b, idx) => {
               const numStr = `0${idx + 1}`;
+
               return (
                 <div
                   key={b.title}
                   className={cn(
-                    "group relative surface-card p-6 transition-all duration-500 ease-out [perspective:800px] overflow-hidden",
-                    "hover:-translate-y-1.5 hover:shadow-[var(--shadow-lift)] motion-reduce:transform-none motion-reduce:hover:translate-y-0",
+                    "group relative surface-card overflow-hidden p-6 transition-all duration-500 ease-out",
+                    "hover:-translate-y-1.5 hover:shadow-[var(--shadow-lift)]",
                     b.highlight
                       ? "border-primary/40 ring-1 ring-primary/20 bg-background"
                       : "border-border/80",
                   )}
                 >
-                  {/* Subtle watermark numeral in background */}
                   <span
                     className="pointer-events-none absolute right-3 top-1 font-display text-6xl font-bold tracking-tighter text-foreground/[0.04] select-none transition-colors duration-500 group-hover:text-primary/[0.08]"
                     aria-hidden
@@ -497,19 +494,16 @@ function Home() {
                     {numStr}
                   </span>
 
-                  <div className="relative z-10 flex flex-col items-start">
-                    <div
-                      className={cn(
-                        "flex size-12 items-center justify-center rounded-2xl border shadow-xs transition-transform duration-500 group-hover:scale-110 motion-reduce:transform-none",
-                        b.highlight
-                          ? "border-primary/30 bg-primary/15 text-primary"
-                          : "border-primary/20 bg-primary/10 text-primary",
-                      )}
-                    >
-                      <b.icon className="size-6" aria-hidden />
+                  <div className="relative z-10">
+                    <div className="mb-5 flex h-20 w-full items-center justify-center overflow-hidden rounded-xl bg-secondary/50">
+                      <img
+                        src={b.image}
+                        alt={b.imageAlt}
+                        className="h-full w-full object-contain p-2 transition-transform duration-500 group-hover:scale-105"
+                      />
                     </div>
 
-                    <h3 className="mt-5 font-display text-base font-semibold tracking-tight text-foreground">
+                    <h3 className="font-display text-base font-semibold tracking-tight text-foreground">
                       {b.title}
                     </h3>
 
@@ -523,7 +517,7 @@ function Home() {
       </div>
 
       {/* ----------------------------------------------------------------------
-          SECTION 6 — ORDERING PROCESS
+          SECTION 6 â€” ORDERING PROCESS
           Connected journey with progressive timeline nodes
          ---------------------------------------------------------------------- */}
       <Section className="py-16 sm:py-20 md:py-24">
@@ -584,7 +578,7 @@ function Home() {
       </Section>
 
       {/* ----------------------------------------------------------------------
-          SECTION 7 — ORDERING METHODS
+          SECTION 7 â€” ORDERING METHODS
           Elevated service cards with experience badges
          ---------------------------------------------------------------------- */}
       <Section className="pt-0 pb-16 sm:pb-20">
@@ -621,7 +615,7 @@ function Home() {
       </Section>
 
       {/* ----------------------------------------------------------------------
-          SECTION 8 — VISIT NEBA & ORNIX-TECH PLATFORM
+          SECTION 8 â€” VISIT NEBA & ORNIX-TECH PLATFORM
           Atmospheric espresso flagship experience with technology highlights
          ---------------------------------------------------------------------- */}
       <Section className="py-16 sm:py-20 md:py-24">
@@ -637,11 +631,11 @@ function Home() {
           />
 
           <div className="relative z-10 grid items-center gap-10 lg:grid-cols-12">
-            {/* Left Side: Physical Café Experience */}
+            {/* Left Side: Physical CafÃ© Experience */}
             <div className="space-y-6 lg:col-span-7">
               <div className="inline-flex items-center gap-2 rounded-full border border-espresso-foreground/20 bg-espresso-foreground/10 px-3.5 py-1 text-xs font-semibold uppercase tracking-[0.22em] text-espresso-foreground/80">
                 <MapPin className="size-3.5 text-primary" aria-hidden />
-                Visit NEBA Café
+                Visit NEBA CafÃ©
               </div>
 
               <h2 className="font-display text-3xl font-semibold tracking-tight sm:text-4xl lg:text-5xl text-espresso-foreground">
