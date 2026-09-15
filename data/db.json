@@ -280,6 +280,84 @@
   },
   "orders": [
     {
+      "id": "ord_mu2lr371_2yop",
+      "number": "#1050",
+      "createdAt": "2026-09-15T11:42:28.333Z",
+      "method": "dine-in",
+      "status": "received",
+      "paymentStatus": "paid",
+      "paymentMethod": "Telebirr Mobile",
+      "customer": {
+        "name": "Herani Wudma",
+        "phone": "+251900467999",
+        "table": "Table 12"
+      },
+      "items": [
+        {
+          "productId": "PROD-BURGER-001",
+          "name": "Classic Burger",
+          "quantity": 1,
+          "price": 250
+        }
+      ],
+      "subtotal": 250,
+      "discount": 0,
+      "delivery": 0,
+      "total": 250
+    },
+    {
+      "id": "ord_mu2k4dil_52dg",
+      "number": "#1042",
+      "createdAt": "2026-09-15T10:56:49.005Z",
+      "method": "delivery",
+      "status": "received",
+      "paymentStatus": "paid",
+      "paymentMethod": "CBE Birr",
+      "customer": {
+        "name": "Herani Wudma",
+        "phone": "+251900467999",
+        "address": "A.A"
+      },
+      "items": [
+        {
+          "productId": "PROD-73EBDAA3-4AE6",
+          "name": "Neba  Double Jambo Burger",
+          "quantity": 1,
+          "price": 450
+        }
+      ],
+      "subtotal": 450,
+      "discount": 0,
+      "delivery": 90,
+      "total": 540
+    },
+    {
+      "id": "ord_mu2ftsgq_j9ad",
+      "number": "#1068",
+      "createdAt": "2026-09-15T08:56:36.698Z",
+      "method": "delivery",
+      "status": "confirmed",
+      "paymentStatus": "paid",
+      "paymentMethod": "Mobile Payment",
+      "customer": {
+        "name": "Herani Wudma",
+        "phone": "+251900467999",
+        "address": "A.A"
+      },
+      "items": [
+        {
+          "productId": "PROD-PIZZA-001",
+          "name": "Special Pizza",
+          "quantity": 1,
+          "price": 450
+        }
+      ],
+      "subtotal": 450,
+      "discount": 0,
+      "delivery": 90,
+      "total": 540
+    },
+    {
       "id": "ord_mu03ub8b_bv9o",
       "number": "#1030",
       "createdAt": "2026-09-13T17:45:33.275Z",

@@ -56,7 +56,6 @@ import { formatETB } from "@/lib/menu-data";
 import {
   flowFor,
   methodLabels,
-  readOrders,
   statusLabels,
   type Order,
   type OrderMethod,
@@ -200,7 +199,7 @@ function formatElapsed(createdAt: string): string {
   }
 }
 
-export function AdminOrdersPage() {
+function AdminOrdersPage() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -215,15 +214,10 @@ export function AdminOrdersPage() {
     if (isManual) setRefreshing(true);
     try {
       const fetched = await fetchOrders();
-      if (fetched && fetched.length > 0) {
-        setOrders(fetched);
-      } else {
-        const local = readOrders();
-        setOrders(local);
-      }
-    } catch {
-      const local = readOrders();
-      setOrders(local);
+      setOrders(fetched);
+    } catch (err) {
+      console.warn("Failed to load admin orders from database:", err);
+      setOrders([]);
     } finally {
       setLoading(false);
       if (isManual) {
