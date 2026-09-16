@@ -4,6 +4,7 @@ import {
   createPromotion,
   deleteProduct,
   deletePromotion,
+  getAboutContent,
   getCategories,
   getCustomers,
   getOrderById,
@@ -13,13 +14,16 @@ import {
   getPromotions,
   getSettings,
   updateOrderPayment,
+  updateAboutContent,
   updateOrderStatus,
   updateProduct,
   updatePromotions,
   updateSettings,
 } from "./db";
+import type { AboutContent } from "@/lib/content";
 import type { Order, OrderStatus } from "@/lib/orders";
 import type { Promotion } from "@/lib/promotions";
+import { createScopedClient, supabase } from "@/lib/supabase";
 
 const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -49,6 +53,42 @@ function serverError(error: unknown): Response {
   console.error("[api] Unhandled server error:", error);
   const message = error instanceof Error ? error.message : "Internal Server Error";
   return json({ error: "Internal Server Error", message }, 500);
+}
+
+/**
+ * Validates the request bearer token against Supabase Auth and checks for ADMIN role in public.users
+ * using a token-scoped client to satisfy PostgREST Row-Level Security.
+ * Returns the verified token if authorized, or null if unauthorized.
+ */
+async function verifyAdminUser(request: Request): Promise<string | null> {
+  const authHeader = request.headers.get("Authorization");
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return null;
+  }
+
+  const token = authHeader.replace(/^Bearer\s+/i, "").trim();
+  if (!token) return null;
+
+  try {
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser(token);
+    if (userError || !user) return null;
+
+    const scopedClient = createScopedClient(token);
+    const { data: profile, error: profError } = await scopedClient
+      .from("users")
+      .select("role")
+      .eq("id", user.id)
+      .maybeSingle();
+
+    if (profError || !profile) return null;
+    return profile.role === "ADMIN" ? token : null;
+  } catch (err) {
+    console.warn("[api] Admin verification failed:", err);
+    return null;
+  }
 }
 
 /**
@@ -272,7 +312,9 @@ export async function handleApiRequest(request: Request): Promise<Response> {
           description: body.description || "",
           discountType: body.discountType || "percentage",
           discountValue: Number(body.discountValue) || 0,
-          applicableProductIds: Array.isArray(body.applicableProductIds) ? body.applicableProductIds : ["*"],
+          applicableProductIds: Array.isArray(body.applicableProductIds)
+            ? body.applicableProductIds
+            : ["*"],
           applicableCategorySlug: body.applicableCategorySlug,
           startDate: body.startDate || new Date().toISOString().split("T")[0]!,
           endDate: body.endDate || "2099-12-31",
@@ -315,6 +357,64 @@ export async function handleApiRequest(request: Request): Promise<Response> {
           return badRequest("Invalid JSON body");
         }
         const updated = await updateSettings(body);
+        return json(updated);
+      }
+
+      return json({ error: "Method Not Allowed" }, 405);
+    }
+
+    /* ----------------------------------------------------------------------
+       6. Website Content:
+          GET /api/content
+          PUT /api/content
+       ---------------------------------------------------------------------- */
+    if (pathname === "/api/content") {
+      if (method === "GET") {
+        const content = await getAboutContent();
+        return json(content);
+      }
+
+      if (method === "PUT" || method === "PATCH") {
+        const token = await verifyAdminUser(request);
+        if (!token) {
+          return json(
+            { error: "Forbidden", message: "Only administrators can update website content." },
+            403,
+          );
+        }
+
+        const body = await request.json().catch(() => null);
+        if (!body || typeof body !== "object") {
+          return badRequest("Invalid JSON body");
+        }
+
+        // Sanitize payload to ONLY allowed editable fields (protect id and updated_at)
+        const allowedUpdates: Partial<AboutContent> = {};
+        if (body.homepage_hero_image !== undefined)
+          allowedUpdates.homepage_hero_image = body.homepage_hero_image;
+        if (body.about_hero_image !== undefined)
+          allowedUpdates.about_hero_image = body.about_hero_image;
+        if (typeof body.about_title === "string") allowedUpdates.about_title = body.about_title;
+        if (typeof body.about_description === "string")
+          allowedUpdates.about_description = body.about_description;
+        if (typeof body.story_title === "string") allowedUpdates.story_title = body.story_title;
+        if (typeof body.story_content === "string")
+          allowedUpdates.story_content = body.story_content;
+        if (body.story_image !== undefined) allowedUpdates.story_image = body.story_image;
+        if (typeof body.value_1_title === "string")
+          allowedUpdates.value_1_title = body.value_1_title;
+        if (typeof body.value_1_description === "string")
+          allowedUpdates.value_1_description = body.value_1_description;
+        if (typeof body.value_2_title === "string")
+          allowedUpdates.value_2_title = body.value_2_title;
+        if (typeof body.value_2_description === "string")
+          allowedUpdates.value_2_description = body.value_2_description;
+        if (typeof body.value_3_title === "string")
+          allowedUpdates.value_3_title = body.value_3_title;
+        if (typeof body.value_3_description === "string")
+          allowedUpdates.value_3_description = body.value_3_description;
+
+        const updated = await updateAboutContent(allowedUpdates, token);
         return json(updated);
       }
 

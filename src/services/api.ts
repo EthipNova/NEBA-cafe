@@ -18,6 +18,7 @@ import {
 } from "@/lib/orders";
 import type { Promotion, DiscountType, PromotionStatus } from "@/lib/promotions";
 import { DEFAULT_SETTINGS, type NebaSettings } from "@/lib/settings";
+import { type AboutContent, DEFAULT_ABOUT_CONTENT, normalizeAboutContent } from "@/lib/content";
 import { supabase } from "@/lib/supabase";
 
 /**
@@ -115,10 +116,12 @@ function getFallbackImage(name: string, categorySlug?: string): string {
   if (n.includes("chicken") && n.includes("burger")) return "/src/assets/chicken-burger.jpg";
   if (n.includes("cheese") && n.includes("burger")) return "/src/assets/cheese-burger.jpg";
   if (n.includes("burger") || cat.includes("burger")) return "/src/assets/classic-burger.jpg";
-  if (n.includes("fries") || n.includes("chip") || cat.includes("side")) return "/src/assets/fries.jpg";
+  if (n.includes("fries") || n.includes("chip") || cat.includes("side"))
+    return "/src/assets/fries.jpg";
   if (n.includes("sprite")) return "/src/assets/sprite.jpg";
   if (n.includes("water")) return "/src/assets/water.jpg";
-  if (n.includes("drink") || n.includes("cola") || cat.includes("drink")) return "/src/assets/cola.jpg";
+  if (n.includes("drink") || n.includes("cola") || cat.includes("drink"))
+    return "/src/assets/cola.jpg";
   return "/src/assets/hero.jpg";
 }
 
@@ -195,7 +198,8 @@ export async function fetchProducts(options?: FetchProductsOptions): Promise<Pro
 
   try {
     let queryBuilder = (supabase.from("products" as any) as any)
-      .select(`
+      .select(
+        `
         id,
         category_id,
         name,
@@ -214,7 +218,8 @@ export async function fetchProducts(options?: FetchProductsOptions): Promise<Pro
           tagline,
           is_active
         )
-      `)
+      `,
+      )
       .order("created_at", { ascending: false });
 
     if (typeof options?.available === "boolean") {
@@ -272,7 +277,8 @@ export async function fetchProductById(id: string): Promise<Product> {
 
   try {
     const { data, error } = await (supabase.from("products" as any) as any)
-      .select(`
+      .select(
+        `
         id,
         category_id,
         name,
@@ -290,7 +296,8 @@ export async function fetchProductById(id: string): Promise<Product> {
           tagline,
           is_active
         )
-      `)
+      `,
+      )
       .or(`id.eq.${id},slug.eq.${id}`)
       .maybeSingle();
 
@@ -386,7 +393,8 @@ export async function fetchPromotions(): Promise<Promotion[]> {
 
   try {
     const { data, error } = await (supabase.from("promotions" as any) as any)
-      .select(`
+      .select(
+        `
         id,
         name,
         description,
@@ -415,13 +423,16 @@ export async function fetchPromotions(): Promise<Promotion[]> {
             category_id
           )
         )
-      `)
+      `,
+      )
       .order("created_at", { ascending: false });
 
     if (!error && data && data.length > 0) {
       return data.map((raw: any) => {
         const cat = Array.isArray(raw.categories) ? raw.categories[0] : raw.categories;
-        const promoProductsRaw = Array.isArray(raw.promotion_products) ? raw.promotion_products : [];
+        const promoProductsRaw = Array.isArray(raw.promotion_products)
+          ? raw.promotion_products
+          : [];
         const applicableProductIds = promoProductsRaw.map((p: any) => p.product_id).filter(Boolean);
 
         return {
@@ -783,4 +794,45 @@ export async function updateOrderPayment(
   }
 
   throw new ApiError(`Order '${id}' payment update failed`, 404);
+}
+
+/* ==========================================================================
+   6. Website Content
+   ========================================================================== */
+
+/**
+ * Fetches the singleton website content (homepage hero, about narrative, values).
+ */
+export async function fetchAboutContent(): Promise<AboutContent> {
+  try {
+    const data = await request<AboutContent>("/api/content");
+    if (data) return normalizeAboutContent(data);
+  } catch (err) {
+    console.warn("fetchAboutContent API request failed:", err);
+  }
+
+  return { ...DEFAULT_ABOUT_CONTENT };
+}
+
+/**
+ * Updates website content in the database (requires authenticated ADMIN session).
+ */
+export async function updateAboutContent(data: Partial<AboutContent>): Promise<AboutContent> {
+  const headers: Record<string, string> = {};
+
+  try {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData?.session?.access_token;
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+    }
+  } catch {
+    // ignore if session unavailable in non-browser environment
+  }
+
+  return request<AboutContent>("/api/content", {
+    method: "PUT",
+    headers,
+    body: JSON.stringify(data),
+  });
 }
