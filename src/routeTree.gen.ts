@@ -17,10 +17,12 @@ import { Route as CartRouteImport } from './routes/cart'
 import { Route as CheckoutRouteImport } from './routes/checkout'
 import { Route as ContactRouteImport } from './routes/contact'
 import { Route as OrdersRouteImport } from './routes/orders'
+import { Route as PromotionsRouteImport } from './routes/promotions'
 import { Route as AdminIndexRouteImport } from './routes/admin.index'
 import { Route as AdminAccountRouteImport } from './routes/admin.account'
 import { Route as AdminAvailabilityRouteImport } from './routes/admin.availability'
 import { Route as AdminCategoriesRouteImport } from './routes/admin.categories'
+import { Route as AdminContactMessagesRouteImport } from './routes/admin.contact-messages'
 import { Route as AdminContentRouteImport } from './routes/admin.content'
 import { Route as AdminCustomersRouteImport } from './routes/admin.customers'
 import { Route as AdminOrdersRouteImport } from './routes/admin.orders'
@@ -73,6 +75,11 @@ const OrdersRoute = OrdersRouteImport.update({
   path: '/orders',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PromotionsRoute = PromotionsRouteImport.update({
+  id: '/promotions',
+  path: '/promotions',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AdminIndexRoute = AdminIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -91,6 +98,11 @@ const AdminAvailabilityRoute = AdminAvailabilityRouteImport.update({
 const AdminCategoriesRoute = AdminCategoriesRouteImport.update({
   id: '/categories',
   path: '/categories',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminContactMessagesRoute = AdminContactMessagesRouteImport.update({
+  id: '/contact-messages',
+  path: '/contact-messages',
   getParentRoute: () => AdminRoute,
 } as any)
 const AdminContentRoute = AdminContentRouteImport.update({
@@ -158,9 +170,11 @@ export interface FileRoutesByFullPath {
   '/checkout': typeof CheckoutRoute
   '/contact': typeof ContactRoute
   '/orders': typeof OrdersRoute
+  '/promotions': typeof PromotionsRoute
   '/admin/account': typeof AdminAccountRoute
   '/admin/availability': typeof AdminAvailabilityRoute
   '/admin/categories': typeof AdminCategoriesRoute
+  '/admin/contact-messages': typeof AdminContactMessagesRoute
   '/admin/content': typeof AdminContentRoute
   '/admin/customers': typeof AdminCustomersRoute
   '/admin/orders': typeof AdminOrdersRoute
@@ -182,9 +196,11 @@ export interface FileRoutesByTo {
   '/checkout': typeof CheckoutRoute
   '/contact': typeof ContactRoute
   '/orders': typeof OrdersRoute
+  '/promotions': typeof PromotionsRoute
   '/admin/account': typeof AdminAccountRoute
   '/admin/availability': typeof AdminAvailabilityRoute
   '/admin/categories': typeof AdminCategoriesRoute
+  '/admin/contact-messages': typeof AdminContactMessagesRoute
   '/admin/content': typeof AdminContentRoute
   '/admin/customers': typeof AdminCustomersRoute
   '/admin/orders': typeof AdminOrdersRoute
@@ -208,9 +224,11 @@ export interface FileRoutesById {
   '/checkout': typeof CheckoutRoute
   '/contact': typeof ContactRoute
   '/orders': typeof OrdersRoute
+  '/promotions': typeof PromotionsRoute
   '/admin/account': typeof AdminAccountRoute
   '/admin/availability': typeof AdminAvailabilityRoute
   '/admin/categories': typeof AdminCategoriesRoute
+  '/admin/contact-messages': typeof AdminContactMessagesRoute
   '/admin/content': typeof AdminContentRoute
   '/admin/customers': typeof AdminCustomersRoute
   '/admin/orders': typeof AdminOrdersRoute
@@ -235,9 +253,11 @@ export interface FileRouteTypes {
     | '/checkout'
     | '/contact'
     | '/orders'
+    | '/promotions'
     | '/admin/account'
     | '/admin/availability'
     | '/admin/categories'
+    | '/admin/contact-messages'
     | '/admin/content'
     | '/admin/customers'
     | '/admin/orders'
@@ -259,9 +279,11 @@ export interface FileRouteTypes {
     | '/checkout'
     | '/contact'
     | '/orders'
+    | '/promotions'
     | '/admin/account'
     | '/admin/availability'
     | '/admin/categories'
+    | '/admin/contact-messages'
     | '/admin/content'
     | '/admin/customers'
     | '/admin/orders'
@@ -284,9 +306,11 @@ export interface FileRouteTypes {
     | '/checkout'
     | '/contact'
     | '/orders'
+    | '/promotions'
     | '/admin/account'
     | '/admin/availability'
     | '/admin/categories'
+    | '/admin/contact-messages'
     | '/admin/content'
     | '/admin/customers'
     | '/admin/orders'
@@ -310,6 +334,7 @@ export interface RootRouteChildren {
   CheckoutRoute: typeof CheckoutRoute
   ContactRoute: typeof ContactRoute
   OrdersRoute: typeof OrdersRoute
+  PromotionsRoute: typeof PromotionsRoute
   MenuCategoryRoute: typeof MenuCategoryRoute
   OrderIdRoute: typeof OrderIdRoute
   ProductIdRoute: typeof ProductIdRoute
@@ -374,6 +399,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OrdersRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/promotions': {
+      id: '/promotions'
+      path: '/promotions'
+      fullPath: '/promotions'
+      preLoaderRoute: typeof PromotionsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/admin/': {
       id: '/admin/'
       path: '/'
@@ -400,6 +432,13 @@ declare module '@tanstack/react-router' {
       path: '/categories'
       fullPath: '/admin/categories'
       preLoaderRoute: typeof AdminCategoriesRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/contact-messages': {
+      id: '/admin/contact-messages'
+      path: '/contact-messages'
+      fullPath: '/admin/contact-messages'
+      preLoaderRoute: typeof AdminContactMessagesRouteImport
       parentRoute: typeof AdminRoute
     }
     '/admin/content': {
@@ -486,6 +525,7 @@ interface AdminRouteChildren {
   AdminAccountRoute: typeof AdminAccountRoute
   AdminAvailabilityRoute: typeof AdminAvailabilityRoute
   AdminCategoriesRoute: typeof AdminCategoriesRoute
+  AdminContactMessagesRoute: typeof AdminContactMessagesRoute
   AdminContentRoute: typeof AdminContentRoute
   AdminCustomersRoute: typeof AdminCustomersRoute
   AdminOrdersRoute: typeof AdminOrdersRoute
@@ -500,6 +540,7 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminAccountRoute: AdminAccountRoute,
   AdminAvailabilityRoute: AdminAvailabilityRoute,
   AdminCategoriesRoute: AdminCategoriesRoute,
+  AdminContactMessagesRoute: AdminContactMessagesRoute,
   AdminContentRoute: AdminContentRoute,
   AdminCustomersRoute: AdminCustomersRoute,
   AdminOrdersRoute: AdminOrdersRoute,
@@ -521,6 +562,7 @@ const rootRouteChildren: RootRouteChildren = {
   CheckoutRoute: CheckoutRoute,
   ContactRoute: ContactRoute,
   OrdersRoute: OrdersRoute,
+  PromotionsRoute: PromotionsRoute,
   MenuCategoryRoute: MenuCategoryRoute,
   OrderIdRoute: OrderIdRoute,
   ProductIdRoute: ProductIdRoute,

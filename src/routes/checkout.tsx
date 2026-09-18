@@ -2,6 +2,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import {
   Banknote,
   Check,
+  CheckCircle2,
   Clock,
   CreditCard,
   MapPin,
@@ -15,6 +16,7 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import type { Session } from "@supabase/supabase-js";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,8 +24,9 @@ import { Label } from "@/components/ui/label";
 import { EmptyState, Section } from "@/components/site/Section";
 import { useCart } from "@/lib/cart";
 import { formatETB, getProduct } from "@/lib/menu-data";
-import { buildOrder, methodLabels, saveOrder, type OrderMethod } from "@/lib/orders";
-import { createOrder as apiCreateOrder, fetchSettings } from "@/services/api";
+import { methodLabels, saveOrder, type OrderMethod } from "@/lib/orders";
+import { createOrder as apiCreateOrder, fetchCustomerProfile, fetchSettings } from "@/services/api";
+import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/checkout")({
@@ -67,6 +70,8 @@ function Checkout() {
   const [payment, setPayment] = useState<"telebirr" | "cbe" | "cash">("telebirr");
   const [transactionRef, setTransactionRef] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [session, setSession] = useState<Session | null>(null);
+  const [authenticatedCustomerName, setAuthenticatedCustomerName] = useState<string | null>(null);
 
   useEffect(() => {
     fetchSettings()
@@ -74,6 +79,81 @@ function Checkout() {
         if (s?.deliveryFee !== undefined) setDeliveryFee(s.deliveryFee);
       })
       .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+
+    const loadProfile = async (s: Session) => {
+      try {
+        const profile = await fetchCustomerProfile();
+        if (!active) return;
+        const meta = (s.user.user_metadata || {}) as Record<string, unknown>;
+        const name =
+          profile?.customer?.name ||
+          profile?.user?.full_name ||
+          (typeof meta["full_name"] === "string" ? meta["full_name"] : "") ||
+          (typeof meta["name"] === "string" ? meta["name"] : "") ||
+          "";
+        const phone =
+          profile?.customer?.phone ||
+          profile?.user?.phone ||
+          (typeof meta["phone"] === "string" ? meta["phone"] : "") ||
+          "";
+
+        if (name) {
+          setAuthenticatedCustomerName(name);
+        } else if (s.user.email) {
+          setAuthenticatedCustomerName(s.user.email);
+        }
+
+        setForm((prev) => ({
+          ...prev,
+          name: prev.name || name,
+          phone: prev.phone || phone,
+        }));
+      } catch {
+        if (!active) return;
+        const meta = (s.user.user_metadata || {}) as Record<string, unknown>;
+        const name =
+          (typeof meta["full_name"] === "string" ? meta["full_name"] : "") ||
+          (typeof meta["name"] === "string" ? meta["name"] : "") ||
+          s.user.email ||
+          "";
+        const phone = typeof meta["phone"] === "string" ? meta["phone"] : "";
+        if (name) setAuthenticatedCustomerName(name);
+        setForm((prev) => ({
+          ...prev,
+          name: prev.name || name,
+          phone: prev.phone || phone,
+        }));
+      }
+    };
+
+    supabase.auth.getSession().then(({ data: { session: s } }) => {
+      if (!active) return;
+      setSession(s);
+      if (s) {
+        void loadProfile(s);
+      }
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, s) => {
+      if (!active) return;
+      setSession(s);
+      if (s) {
+        void loadProfile(s);
+      } else {
+        setAuthenticatedCustomerName(null);
+      }
+    });
+
+    return () => {
+      active = false;
+      subscription.unsubscribe();
+    };
   }, []);
 
   const methodOptions: {
@@ -218,8 +298,7 @@ function Checkout() {
 
       // If user chose cash/in-person, payment is pending settlement upon delivery/table.
       // If mobile wallet, marked paid immediately or verified.
-      const initialPaymentStatus: "paid" | "pending" =
-        payment === "cash" ? "pending" : "paid";
+      const initialPaymentStatus: "paid" | "pending" = payment === "cash" ? "pending" : "paid";
 
       const orderData = {
         lines: resolvedLines,
@@ -232,9 +311,7 @@ function Checkout() {
           name: form.name.trim() || (method === "dine-in" ? "Dine-in guest" : ""),
           phone: form.phone.trim(),
           ...(method === "dine-in" && form.table.trim() ? { table: form.table.trim() } : {}),
-          ...(method === "delivery" && form.address.trim()
-            ? { address: form.address.trim() }
-            : {}),
+          ...(method === "delivery" && form.address.trim() ? { address: form.address.trim() } : {}),
         },
       };
 
@@ -249,7 +326,7 @@ function Checkout() {
           : "Order placed! Payment pending upon delivery/service.",
       );
       void navigate({ to: "/order/$id", params: { id: order.id } });
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error("Checkout order creation error:", e);
       const errMsg = e instanceof Error ? e.message : "Failed to complete order. Please try again.";
       toast.error(`Order submission failed: ${errMsg}`);
@@ -369,6 +446,33 @@ function Checkout() {
                 </button>
               </div>
             </div>
+
+            {authenticatedCustomerName ? (
+              <div className="flex items-center justify-between gap-2 rounded-xl border border-primary/30 bg-primary/10 px-4 py-3 text-xs text-foreground">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="size-4 text-primary shrink-0" />
+                  <span>
+                    Ordering as{" "}
+                    <strong className="font-semibold text-primary">
+                      {authenticatedCustomerName}
+                    </strong>
+                  </span>
+                </div>
+                <Badge
+                  variant="secondary"
+                  className="text-[10px] uppercase tracking-wider font-semibold"
+                >
+                  Signed In
+                </Badge>
+              </div>
+            ) : (
+              <div className="flex items-center justify-between rounded-xl border border-border bg-secondary/30 px-4 py-2.5 text-xs text-muted-foreground">
+                <span>Guest Checkout — No account required</span>
+                <Link to="/account" className="text-primary hover:underline font-medium">
+                  Sign in for faster ordering
+                </Link>
+              </div>
+            )}
 
             {/* Dine-in fields */}
             {method === "dine-in" && (
@@ -621,7 +725,9 @@ function Checkout() {
           <div className="space-y-6">
             <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border pb-4">
               <div>
-                <h2 className="font-display text-xl font-semibold">Step 4 — Payment & Settlement</h2>
+                <h2 className="font-display text-xl font-semibold">
+                  Step 4 — Payment & Settlement
+                </h2>
                 <p className="mt-1 text-sm text-muted-foreground">
                   Verify your pending order details and authorize your payment method.
                 </p>
@@ -651,7 +757,10 @@ function Checkout() {
                 {lines.map((l) => {
                   const p = getProduct(l.productId);
                   return (
-                    <div key={l.productId} className="flex items-center justify-between py-2 text-xs sm:text-sm">
+                    <div
+                      key={l.productId}
+                      className="flex items-center justify-between py-2 text-xs sm:text-sm"
+                    >
                       <div className="flex items-center gap-2.5">
                         {p?.image ? (
                           <img
@@ -684,7 +793,9 @@ function Checkout() {
               <div className="rounded-lg border border-border/60 bg-background/80 p-3 text-xs">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-muted-foreground">
                   <div className="flex items-center gap-1.5">
-                    {method === "dine-in" && <Utensils className="size-3.5 text-primary shrink-0" />}
+                    {method === "dine-in" && (
+                      <Utensils className="size-3.5 text-primary shrink-0" />
+                    )}
                     {method === "takeaway" && <Store className="size-3.5 text-primary shrink-0" />}
                     {method === "delivery" && <Truck className="size-3.5 text-primary shrink-0" />}
                     <span>
@@ -695,7 +806,11 @@ function Checkout() {
                   </div>
                   <div className="flex items-center gap-1.5 sm:justify-end">
                     <Phone className="size-3.5 text-primary shrink-0" />
-                    <span>{form.name ? `${form.name} (${form.phone || "No phone"})` : form.phone || "Guest"}</span>
+                    <span>
+                      {form.name
+                        ? `${form.name} (${form.phone || "No phone"})`
+                        : form.phone || "Guest"}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -801,9 +916,13 @@ function Checkout() {
 
                         {/* Optional Transaction reference input for mobile payments */}
                         {isSelected && option.id !== "cash" && (
-                          <div className="mt-3 pt-3 border-t border-border/40 space-y-1.5" onClick={(e) => e.stopPropagation()}>
+                          <div
+                            className="mt-3 pt-3 border-t border-border/40 space-y-1.5"
+                            onClick={(e) => e.stopPropagation()}
+                          >
                             <Label htmlFor="tx-ref" className="text-xs font-medium text-foreground">
-                              Transaction Reference / Confirmation Code <span className="text-muted-foreground">(optional)</span>
+                              Transaction Reference / Confirmation Code{" "}
+                              <span className="text-muted-foreground">(optional)</span>
                             </Label>
                             <Input
                               id="tx-ref"
@@ -824,7 +943,8 @@ function Checkout() {
             <div className="rounded-lg border border-border bg-muted/30 p-3.5 text-xs text-muted-foreground flex items-center gap-2">
               <ShieldCheck className="size-4 text-primary shrink-0" />
               <span>
-                All orders are saved to the persistent café database. Status updates reflect live kitchen operations in real-time.
+                All orders are saved to the persistent café database. Status updates reflect live
+                kitchen operations in real-time.
               </span>
             </div>
           </div>

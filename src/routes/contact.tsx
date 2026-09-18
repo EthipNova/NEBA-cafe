@@ -8,7 +8,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Section } from "@/components/site/Section";
 import { DEFAULT_SETTINGS, type NebaSettings } from "@/lib/settings";
-import { fetchSettings } from "@/services/api";
+import { validateContactInput, type ContactValidationResult } from "@/lib/contact";
+import { fetchSettings, submitContactMessage } from "@/services/api";
 
 export const Route = createFileRoute("/contact")({
   loader: async () => {
@@ -36,7 +37,13 @@ export const Route = createFileRoute("/contact")({
 
 function ContactPage() {
   const loaderData = Route.useLoaderData();
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [message, setMessage] = useState("");
+  const [submitting, setSubmitting] = useState(false);
   const [sent, setSent] = useState(false);
+  const [errors, setErrors] = useState<ContactValidationResult["errors"]>({});
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const [settings, setSettings] = useState<NebaSettings>(loaderData?.settings || DEFAULT_SETTINGS);
 
   useEffect(() => {
@@ -56,6 +63,47 @@ function ContactPage() {
       cancelled = true;
     };
   }, []);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (submitting) return;
+
+    setSubmitError(null);
+    const validation = validateContactInput({ name, email, message });
+    if (!validation.valid) {
+      setErrors(validation.errors);
+      const firstError = Object.values(validation.errors)[0] || "Please check the form inputs.";
+      toast.error(firstError);
+      return;
+    }
+
+    setErrors({});
+    setSubmitting(true);
+
+    try {
+      await submitContactMessage({
+        name,
+        email,
+        message,
+      });
+
+      setSent(true);
+      toast.success("Message sent successfully. Thank you for contacting NEBA Café.");
+      setName("");
+      setEmail("");
+      setMessage("");
+      setErrors({});
+      setSubmitError(null);
+    } catch (err: unknown) {
+      const errMsg =
+        err instanceof Error ? err.message : "Failed to send message. Please try again.";
+      setSubmitError(errMsg);
+      toast.error(errMsg);
+      setSent(false);
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   const details = [
     { icon: MapPin, label: "Location", value: settings.address || DEFAULT_SETTINGS.address },
@@ -164,33 +212,95 @@ function ContactPage() {
           <p className="text-sm text-muted-foreground">Social media: @nebacafe</p>
         </div>
 
-        <form
-          className="surface-card space-y-4 p-6"
-          onSubmit={(e) => {
-            e.preventDefault();
-            setSent(true);
-            toast.success("Message sent — we'll be in touch");
-          }}
-        >
+        <form className="surface-card space-y-4 p-6" onSubmit={handleSubmit} noValidate>
           <h2 className="font-display text-xl font-semibold">Send a message</h2>
+
+          {submitError && (
+            <div
+              className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-xs text-destructive"
+              role="alert"
+            >
+              {submitError}
+            </div>
+          )}
+
           <div className="space-y-2">
             <Label htmlFor="c-name">Name</Label>
-            <Input id="c-name" required autoComplete="name" />
+            <Input
+              id="c-name"
+              value={name}
+              onChange={(e) => {
+                setName(e.target.value);
+                if (errors.name) {
+                  setErrors((prev) => {
+                    const next = { ...prev };
+                    delete next.name;
+                    return next;
+                  });
+                }
+              }}
+              disabled={submitting}
+              required
+              autoComplete="name"
+              placeholder="Your full name"
+            />
+            {errors.name && <p className="text-xs text-destructive">{errors.name}</p>}
           </div>
+
           <div className="space-y-2">
             <Label htmlFor="c-email">Email</Label>
-            <Input id="c-email" type="email" required autoComplete="email" />
+            <Input
+              id="c-email"
+              type="email"
+              value={email}
+              onChange={(e) => {
+                setEmail(e.target.value);
+                if (errors.email) {
+                  setErrors((prev) => {
+                    const next = { ...prev };
+                    delete next.email;
+                    return next;
+                  });
+                }
+              }}
+              disabled={submitting}
+              required
+              autoComplete="email"
+              placeholder="you@example.com"
+            />
+            {errors.email && <p className="text-xs text-destructive">{errors.email}</p>}
           </div>
+
           <div className="space-y-2">
             <Label htmlFor="c-message">Message</Label>
-            <Textarea id="c-message" rows={5} required />
+            <Textarea
+              id="c-message"
+              rows={5}
+              value={message}
+              onChange={(e) => {
+                setMessage(e.target.value);
+                if (errors.message) {
+                  setErrors((prev) => {
+                    const next = { ...prev };
+                    delete next.message;
+                    return next;
+                  });
+                }
+              }}
+              disabled={submitting}
+              required
+              placeholder="How can we help you?"
+            />
+            {errors.message && <p className="text-xs text-destructive">{errors.message}</p>}
           </div>
-          <Button type="submit" className="w-full">
-            Send message
+
+          <Button type="submit" className="w-full" disabled={submitting}>
+            {submitting ? "Sending message…" : "Send message"}
           </Button>
+
           {sent && (
-            <p role="status" className="text-sm text-success">
-              Thanks — your message has been recorded.
+            <p role="status" className="text-sm font-medium text-success">
+              Message sent successfully. Thank you for contacting NEBA Café.
             </p>
           )}
         </form>

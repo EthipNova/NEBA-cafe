@@ -6,24 +6,32 @@ import {
   deletePromotion,
   getAboutContent,
   getCategories,
+  getCustomerProfileByUserId,
   getCustomers,
   getOrderById,
   getOrders,
+  getOrdersForCustomerUser,
   getProductById,
   getProducts,
   getPromotions,
   getSettings,
+  syncCustomerProfile,
   updateOrderPayment,
   updateAboutContent,
   updateOrderStatus,
   updateProduct,
   updatePromotions,
   updateSettings,
+  createContactMessage,
+  getContactMessages,
+  updateContactMessageReadStatus,
+  deleteContactMessage,
 } from "./db";
+import { validateContactInput } from "@/lib/contact";
 import type { AboutContent } from "@/lib/content";
 import type { Order, OrderStatus } from "@/lib/orders";
 import type { Promotion } from "@/lib/promotions";
-import { createScopedClient, supabase } from "@/lib/supabase";
+import { createScopedClient, supabase, type UserRole } from "@/lib/supabase";
 
 const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -45,6 +53,14 @@ function badRequest(message: string): Response {
   return json({ error: "Bad Request", message }, 400);
 }
 
+function unauthorized(message = "Unauthorized"): Response {
+  return json({ error: "Unauthorized", message }, 401);
+}
+
+function forbidden(message = "Forbidden"): Response {
+  return json({ error: "Forbidden", message }, 403);
+}
+
 function notFound(message = "Resource not found"): Response {
   return json({ error: "Not Found", message }, 404);
 }
@@ -55,12 +71,20 @@ function serverError(error: unknown): Response {
   return json({ error: "Internal Server Error", message }, 500);
 }
 
+export interface AuthenticatedUser {
+  id: string;
+  email: string;
+  role: UserRole;
+  fullName?: string | null;
+  phone?: string | null;
+  token: string;
+}
+
 /**
- * Validates the request bearer token against Supabase Auth and checks for ADMIN role in public.users
- * using a token-scoped client to satisfy PostgREST Row-Level Security.
- * Returns the verified token if authorized, or null if unauthorized.
+ * Resolves the authenticated Supabase user from the request Authorization Bearer token,
+ * fetches their role from public.users (or defaults to CUSTOMER), and returns verified identity.
  */
-async function verifyAdminUser(request: Request): Promise<string | null> {
+export async function resolveAuthUser(request: Request): Promise<AuthenticatedUser | null> {
   const authHeader = request.headers.get("Authorization");
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
     return null;
@@ -74,21 +98,62 @@ async function verifyAdminUser(request: Request): Promise<string | null> {
       data: { user },
       error: userError,
     } = await supabase.auth.getUser(token);
-    if (userError || !user) return null;
+    if (userError || !user || !user.id) return null;
 
-    const scopedClient = createScopedClient(token);
-    const { data: profile, error: profError } = await scopedClient
-      .from("users")
-      .select("role")
-      .eq("id", user.id)
-      .maybeSingle();
+    let role: UserRole = "CUSTOMER";
+    let fullName: string | null = null;
+    let phone: string | null = null;
 
-    if (profError || !profile) return null;
-    return profile.role === "ADMIN" ? token : null;
+    try {
+      const scopedClient = createScopedClient(token);
+      const { data: profile } = await scopedClient
+        .from("users")
+        .select("role, full_name, phone")
+        .eq("id", user.id)
+        .maybeSingle();
+
+      if (profile) {
+        if (profile.role) role = profile.role as UserRole;
+        if (profile.full_name) fullName = profile.full_name;
+        if (profile.phone) phone = profile.phone;
+      }
+    } catch {
+      /* ignore lookup failure */
+    }
+
+    if (!fullName) {
+      fullName =
+        (user.user_metadata?.["full_name"] as string) ||
+        (user.user_metadata?.["name"] as string) ||
+        null;
+    }
+    if (!phone) {
+      phone = (user.user_metadata?.["phone"] as string) || null;
+    }
+
+    return {
+      id: user.id,
+      email: user.email || "",
+      role,
+      fullName,
+      phone,
+      token,
+    };
   } catch (err) {
-    console.warn("[api] Admin verification failed:", err);
+    console.warn("[api] resolveAuthUser error:", err);
     return null;
   }
+}
+
+/**
+ * Validates the request bearer token against Supabase Auth and checks for ADMIN role in public.users
+ * using a token-scoped client to satisfy PostgREST Row-Level Security.
+ * Returns the verified token if authorized, or null if unauthorized.
+ */
+async function verifyAdminUser(request: Request): Promise<string | null> {
+  const authUser = await resolveAuthUser(request);
+  if (!authUser) return null;
+  return authUser.role === "ADMIN" ? authUser.token : null;
 }
 
 /**
@@ -120,12 +185,22 @@ export async function handleApiRequest(request: Request): Promise<Response> {
     /* ----------------------------------------------------------------------
        1b. Customers: GET /api/customers
        Returns every customer with their full order history.
-       Runs server-side through serverSupabase (service-role key) so the
-       browser never needs direct Supabase access for admin customer data.
+       Requires authenticated ADMIN or STAFF role via Bearer token.
+       Executes query using createScopedClient(token) so RLS enforces
+       public.is_admin_or_staff() without service-role key.
        ---------------------------------------------------------------------- */
     if (pathname === "/api/customers") {
       if (method === "GET") {
-        const customers = await getCustomers();
+        const authUser = await resolveAuthUser(request);
+        if (!authUser) {
+          return unauthorized("Authentication required");
+        }
+        if (authUser.role !== "ADMIN" && authUser.role !== "STAFF") {
+          return forbidden("Only administrators and staff can access customer data");
+        }
+
+        const scopedClient = createScopedClient(authUser.token);
+        const customers = await getCustomers(scopedClient);
         return json(customers);
       }
       return json({ error: "Method Not Allowed" }, 405);
@@ -200,8 +275,22 @@ export async function handleApiRequest(request: Request): Promise<Response> {
        ---------------------------------------------------------------------- */
     if (pathname === "/api/orders") {
       if (method === "GET") {
-        const phone = url.searchParams.get("phone") || undefined;
-        const orders = await getOrders(phone ? { phone } : undefined);
+        const authUser = await resolveAuthUser(request);
+        if (!authUser) {
+          return unauthorized("Authentication required to access order history");
+        }
+
+        // Admin and Staff: authorized operational orders
+        if (authUser.role === "ADMIN" || authUser.role === "STAFF") {
+          const phone = url.searchParams.get("phone") || undefined;
+          const scopedClient = createScopedClient(authUser.token);
+          const orders = await getOrders(phone ? { phone } : undefined, scopedClient);
+          return json(orders);
+        }
+
+        // Customer: return only customer's own orders (phone query param cannot bypass)
+        const scopedClient = createScopedClient(authUser.token);
+        const orders = await getOrdersForCustomerUser(authUser.id, scopedClient);
         return json(orders);
       }
 
@@ -210,8 +299,78 @@ export async function handleApiRequest(request: Request): Promise<Response> {
         if (!body || typeof body !== "object" || !Array.isArray(body.lines) || !body.method) {
           return badRequest("Invalid order data. 'lines' array and 'method' are required.");
         }
-        const created = await createOrder(body);
-        return json(created, 201);
+        const authUser = await resolveAuthUser(request);
+        const scopedClient = authUser?.token ? createScopedClient(authUser.token) : undefined;
+        try {
+          const created = await createOrder(
+            {
+              ...body,
+              authUserId: authUser?.id || undefined,
+              authUserEmail: authUser?.email || undefined,
+            },
+            scopedClient,
+          );
+          return json(created, 201);
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : "Failed to create order";
+          console.error("[api] Order creation error:", err);
+          return json({ error: "Order Creation Failed", message }, 500);
+        }
+      }
+
+      return json({ error: "Method Not Allowed" }, 405);
+    }
+
+    /* ----------------------------------------------------------------------
+       3b. Customer Profile:
+           GET /api/customer/profile
+           PUT /api/customer/profile
+       ---------------------------------------------------------------------- */
+    if (pathname === "/api/customer/profile") {
+      const authUser = await resolveAuthUser(request);
+      if (!authUser) {
+        return unauthorized("Authentication required");
+      }
+
+      if (method === "GET") {
+        const scopedClient = createScopedClient(authUser.token);
+        const profile = await getCustomerProfileByUserId(authUser.id, scopedClient);
+        return json({
+          user: profile.user || {
+            id: authUser.id,
+            email: authUser.email,
+            role: authUser.role,
+            full_name: authUser.fullName,
+            phone: authUser.phone,
+          },
+          customer: profile.customer,
+        });
+      }
+
+      if (method === "PUT" || method === "PATCH") {
+        const body = await request.json().catch(() => null);
+        if (!body || typeof body !== "object") {
+          return badRequest("Invalid profile payload");
+        }
+
+        const fullName =
+          typeof body.full_name === "string"
+            ? body.full_name.trim()
+            : typeof body.name === "string"
+              ? body.name.trim()
+              : undefined;
+        const phone = typeof body.phone === "string" ? body.phone.trim() : undefined;
+
+        await syncCustomerProfile(authUser.id, authUser.email, {
+          full_name: fullName,
+          phone,
+        });
+
+        const updated = await getCustomerProfileByUserId(authUser.id);
+        return json({
+          user: updated.user,
+          customer: updated.customer,
+        });
       }
 
       return json({ error: "Method Not Allowed" }, 405);
@@ -241,21 +400,73 @@ export async function handleApiRequest(request: Request): Promise<Response> {
       const orderId = decodeURIComponent(orderMatch[1]!);
 
       if (method === "GET") {
-        const order = await getOrderById(orderId);
+        const authUser = await resolveAuthUser(request);
+        const scopedClient = authUser?.token ? createScopedClient(authUser.token) : undefined;
+        const order = await getOrderById(orderId, scopedClient);
         if (!order) return notFound(`Order '${orderId}' not found`);
+
+        // If caller is an authenticated CUSTOMER, verify they own this order
+        if (authUser && authUser.role === "CUSTOMER") {
+          const customerOrders = await getOrdersForCustomerUser(authUser.id, scopedClient);
+          const ownsOrder = customerOrders.some(
+            (o) => o.id === order.id || o.number === order.number,
+          );
+          if (!ownsOrder) {
+            return notFound(`Order '${orderId}' not found`);
+          }
+        }
         return json(order);
       }
 
       if (method === "PATCH" || method === "PUT") {
+        const authUser = await resolveAuthUser(request);
+        if (!authUser) {
+          return unauthorized("Authentication required");
+        }
+
         const body = await request.json().catch(() => null);
         if (!body || typeof body !== "object") {
           return badRequest("Invalid request body");
         }
 
+        const scopedClient = createScopedClient(authUser.token);
         let updated: Order | null = null;
+
         if (body.status) {
-          updated = await updateOrderStatus(orderId, body.status as OrderStatus);
+          // Verify role: ONLY ADMIN or STAFF may update order status
+          if (authUser.role !== "ADMIN" && authUser.role !== "STAFF") {
+            return forbidden("Only administrators and staff can update order status.");
+          }
+
+          const VALID_STATUSES: OrderStatus[] = [
+            "received",
+            "confirmed",
+            "preparing",
+            "ready",
+            "out-for-delivery",
+            "delivered",
+            "completed",
+          ];
+
+          if (!VALID_STATUSES.includes(body.status as OrderStatus)) {
+            return badRequest(
+              `Invalid status '${body.status}'. Valid statuses: ${VALID_STATUSES.join(", ")}`,
+            );
+          }
+
+          try {
+            updated = await updateOrderStatus(
+              orderId,
+              body.status as OrderStatus,
+              scopedClient,
+              authUser.id,
+            );
+          } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : "Failed to update status";
+            return json({ error: "Update Status Failed", message }, 500);
+          }
         }
+
         if (body.paymentStatus) {
           updated = await updateOrderPayment(orderId, {
             paymentStatus: body.paymentStatus,
@@ -263,6 +474,7 @@ export async function handleApiRequest(request: Request): Promise<Response> {
             transactionReference: body.transactionReference,
           });
         }
+
         if (!body.status && !body.paymentStatus) {
           return badRequest("Field 'status' or 'paymentStatus' is required to update order.");
         }
@@ -416,6 +628,121 @@ export async function handleApiRequest(request: Request): Promise<Response> {
 
         const updated = await updateAboutContent(allowedUpdates, token);
         return json(updated);
+      }
+
+      return json({ error: "Method Not Allowed" }, 405);
+    }
+
+    /* ----------------------------------------------------------------------
+       7. Contact Messages:
+          POST   /api/contact
+          GET    /api/contact-messages
+          PATCH  /api/contact-messages/:id
+          DELETE /api/contact-messages/:id
+       ---------------------------------------------------------------------- */
+    if (pathname === "/api/contact") {
+      if (method === "POST") {
+        const body = await request.json().catch(() => null);
+        if (!body || typeof body !== "object") {
+          return badRequest("Invalid JSON body");
+        }
+
+        const validation = validateContactInput(body);
+        if (!validation.valid) {
+          const firstError = Object.values(validation.errors)[0] || "Validation failed";
+          return json(
+            { error: "Validation Error", message: firstError, errors: validation.errors },
+            400,
+          );
+        }
+
+        try {
+          const result = await createContactMessage({
+            name: body.name,
+            email: body.email,
+            message: body.message,
+          });
+          return json(
+            { success: true, message: "Contact message sent successfully", id: result.id },
+            201,
+          );
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : "Failed to save contact message";
+          console.error("[api] Contact message creation error:", err);
+          return json({ error: "Internal Server Error", message }, 500);
+        }
+      }
+
+      return json({ error: "Method Not Allowed" }, 405);
+    }
+
+    if (pathname === "/api/contact-messages") {
+      if (method === "GET") {
+        const authUser = await resolveAuthUser(request);
+        if (!authUser) {
+          return unauthorized("Authentication required to access contact messages");
+        }
+        if (authUser.role !== "ADMIN" && authUser.role !== "STAFF") {
+          return forbidden("Only administrators and staff can access contact messages");
+        }
+
+        const scopedClient = createScopedClient(authUser.token);
+        const messages = await getContactMessages(scopedClient);
+        return json(messages);
+      }
+
+      return json({ error: "Method Not Allowed" }, 405);
+    }
+
+    const contactMessageMatch = pathname.match(/^\/api\/contact-messages\/([^/]+)$/);
+    if (contactMessageMatch) {
+      const messageId = decodeURIComponent(contactMessageMatch[1]!);
+
+      if (method === "PATCH" || method === "PUT") {
+        const authUser = await resolveAuthUser(request);
+        if (!authUser) {
+          return unauthorized("Authentication required");
+        }
+        if (authUser.role !== "ADMIN" && authUser.role !== "STAFF") {
+          return forbidden("Only administrators and staff can update contact messages");
+        }
+
+        const body = await request.json().catch(() => null);
+        if (!body || typeof body !== "object") {
+          return badRequest("Invalid request body");
+        }
+
+        const isRead =
+          body.isRead !== undefined
+            ? Boolean(body.isRead)
+            : body.is_read !== undefined
+              ? Boolean(body.is_read)
+              : undefined;
+
+        if (isRead === undefined) {
+          return badRequest("Field 'isRead' or 'is_read' boolean is required");
+        }
+
+        const scopedClient = createScopedClient(authUser.token);
+        const updated = await updateContactMessageReadStatus(messageId, isRead, scopedClient);
+        if (!updated) {
+          return notFound(`Contact message '${messageId}' not found`);
+        }
+        return json(updated);
+      }
+
+      if (method === "DELETE") {
+        const authUser = await resolveAuthUser(request);
+        if (!authUser) {
+          return unauthorized("Authentication required");
+        }
+        if (authUser.role !== "ADMIN" && authUser.role !== "STAFF") {
+          return forbidden("Only administrators and staff can delete contact messages");
+        }
+
+        const scopedClient = createScopedClient(authUser.token);
+        await deleteContactMessage(messageId, scopedClient);
+        return json({ success: true, deletedId: messageId });
       }
 
       return json({ error: "Method Not Allowed" }, 405);

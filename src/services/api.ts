@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 /**
  * ============================================================================
  * NEBA Café — Frontend Data-Fetching Service Layer (src/services/api.ts)
@@ -16,10 +17,16 @@ import {
   type OrderItem,
   type OrderStatus,
 } from "@/lib/orders";
-import type { Promotion, DiscountType, PromotionStatus } from "@/lib/promotions";
+import type {
+  Promotion,
+  DiscountType,
+  PromotionStatus,
+  PromotionProductItem,
+} from "@/lib/promotions";
 import { DEFAULT_SETTINGS, type NebaSettings } from "@/lib/settings";
 import { type AboutContent, DEFAULT_ABOUT_CONTENT, normalizeAboutContent } from "@/lib/content";
 import { supabase } from "@/lib/supabase";
+import type { ContactMessage, CreateContactMessageInput } from "@/lib/contact";
 
 /**
  * Custom error class for API request failures with HTTP status and server error payload.
@@ -235,6 +242,7 @@ export async function fetchProducts(options?: FetchProductsOptions): Promise<Pro
         const img = raw.image_url?.trim() || getFallbackImage(raw.name, catSlug);
         return {
           id: raw.id,
+          categoryId: raw.category_id || cat?.id || undefined,
           name: raw.name,
           slug: raw.slug || raw.id,
           categorySlug: catSlug,
@@ -400,6 +408,7 @@ export async function fetchPromotions(): Promise<Promotion[]> {
         description,
         discount_type,
         discount_value,
+        applies_to_all,
         start_date,
         end_date,
         status,
@@ -433,7 +442,43 @@ export async function fetchPromotions(): Promise<Promotion[]> {
         const promoProductsRaw = Array.isArray(raw.promotion_products)
           ? raw.promotion_products
           : [];
-        const applicableProductIds = promoProductsRaw.map((p: any) => p.product_id).filter(Boolean);
+        const applicableProductIds: string[] = [];
+        const normalizedProducts: PromotionProductItem[] = [];
+
+        for (const item of promoProductsRaw) {
+          if (item?.product_id) {
+            applicableProductIds.push(item.product_id);
+            const prod = Array.isArray(item.products) ? item.products[0] : item.products;
+            if (prod) {
+              normalizedProducts.push({
+                id: prod.id,
+                name: prod.name || "Menu item",
+                slug: prod.slug || "",
+                price: Number(prod.price) || 0,
+                imageUrl: prod.image_url ?? null,
+                isAvailable: prod.is_available ?? true,
+                categoryId: prod.category_id ?? null,
+              });
+            }
+          }
+        }
+
+        const categoryId = raw.category_id ?? cat?.id ?? null;
+        const isCategory = Boolean(categoryId);
+        const isLegacyAll =
+          !isCategory &&
+          Array.isArray(raw.applicableProductIds) &&
+          raw.applicableProductIds.includes("*");
+        const appliesToAll = isCategory ? false : Boolean(raw.applies_to_all) || isLegacyAll;
+
+        let resolvedProductIds: string[] = [];
+        if (isCategory) {
+          resolvedProductIds = [];
+        } else if (appliesToAll) {
+          resolvedProductIds = [];
+        } else {
+          resolvedProductIds = applicableProductIds.filter((id) => id && id !== "*");
+        }
 
         return {
           id: raw.id,
@@ -441,13 +486,16 @@ export async function fetchPromotions(): Promise<Promotion[]> {
           description: raw.description || "",
           discountType: (raw.discount_type as DiscountType) || "percentage",
           discountValue: Number(raw.discount_value) || 0,
-          applicableProductIds: applicableProductIds.length > 0 ? applicableProductIds : ["*"],
+          appliesToAll,
+          applicableProductIds: resolvedProductIds,
           applicableCategorySlug: cat?.slug || undefined,
+          categoryId,
           startDate: raw.start_date || "",
           endDate: raw.end_date || "",
           status: (raw.status as PromotionStatus) || "active",
           minOrderAmount: raw.min_order_amount ? Number(raw.min_order_amount) : undefined,
           createdAt: raw.created_at || new Date().toISOString(),
+          products: normalizedProducts,
         };
       });
     }
@@ -594,7 +642,12 @@ function normalizeServiceOrder(raw: any): Order {
    ========================================================================== */
 
 export interface CreateOrderPayload {
-  lines: { productId: string; name?: string | undefined; quantity: number; price?: number | undefined }[];
+  lines: {
+    productId: string;
+    name?: string | undefined;
+    quantity: number;
+    price?: number | undefined;
+  }[];
   method: Order["method"];
   customer: Order["customer"];
   paymentMethod?: string | undefined;
@@ -605,70 +658,40 @@ export interface CreateOrderPayload {
 
 /**
  * Fetches all recorded customer orders (optionally filtered by customer phone).
+/**
+ * Fetches order history with authenticated user isolation.
+ * If authenticated, passes Bearer token to retrieve only customer's owned orders (or operational orders for Admin/Staff).
+ * If unauthenticated, returns empty list immediately without exposing other customer data.
  */
-export async function fetchOrders(phone?: string): Promise<Order[]> {
-  const query = phone ? `?phone=${encodeURIComponent(phone)}` : "";
-  try {
-    const data = await request<Order[]>(`/api/orders${query}`);
-    if (Array.isArray(data)) return data;
-  } catch {
-    // Fallback directly to Supabase client
+export async function fetchOrders(
+  options?: { phone?: string | undefined; token?: string | undefined } | string,
+): Promise<Order[]> {
+  const customPhone = typeof options === "string" ? options : options?.phone;
+  let token = typeof options === "object" ? options?.token : undefined;
+
+  const headers: Record<string, string> = {};
+  if (!token && typeof window !== "undefined") {
+    try {
+      const { data } = await supabase.auth.getSession();
+      token = data?.session?.access_token;
+    } catch {
+      /* ignore */
+    }
   }
 
-  try {
-    const { data, error } = await (supabase.from("orders" as any) as any)
-      .select(`
-        id,
-        order_number,
-        customer_name,
-        customer_phone,
-        method,
-        status,
-        table_number,
-        delivery_address,
-        subtotal,
-        discount_amount,
-        delivery_fee,
-        total_amount,
-        created_at,
-        updated_at,
-        order_items (
-          id,
-          order_id,
-          product_id,
-          name,
-          quantity,
-          unit_price,
-          line_total,
-          products (
-            id,
-            name,
-            image_url,
-            price
-          )
-        ),
-        payments (
-          id,
-          order_id,
-          method,
-          status,
-          amount
-        )
-      `)
-      .order("created_at", { ascending: false });
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  } else {
+    // Unauthenticated: return empty list immediately to prevent unauthenticated 401s or leaks
+    return [];
+  }
 
-    if (!error && Array.isArray(data)) {
-      let orders = data.map(normalizeServiceOrder);
-      if (phone) {
-        const p = phone.replace(/[\s\-().+]/g, "").slice(-9);
-        orders = orders.filter((o: Order) =>
-          o.customer.phone.replace(/[\s\-().+]/g, "").includes(p),
-        );
-      }
-      return orders;
-    }
+  const query = customPhone ? `?phone=${encodeURIComponent(customPhone)}` : "";
+  try {
+    const data = await request<Order[]>(`/api/orders${query}`, { headers });
+    if (Array.isArray(data)) return data;
   } catch (err) {
-    console.warn("fetchOrders Supabase fallback failed:", err);
+    console.warn("fetchOrders API error:", err);
   }
 
   return [];
@@ -687,7 +710,8 @@ export async function fetchOrderById(id: string): Promise<Order> {
 
   try {
     const { data, error } = await (supabase.from("orders" as any) as any)
-      .select(`
+      .select(
+        `
         id,
         order_number,
         customer_name,
@@ -724,7 +748,8 @@ export async function fetchOrderById(id: string): Promise<Order> {
           status,
           amount
         )
-      `)
+      `,
+      )
       .or(`id.eq.${id},order_number.eq.${id}`)
       .maybeSingle();
 
@@ -741,12 +766,104 @@ export async function fetchOrderById(id: string): Promise<Order> {
   throw new ApiError(`Order '${id}' not found`, 404);
 }
 
+export interface CustomerProfileData {
+  user: {
+    id: string;
+    email: string;
+    role: string;
+    full_name?: string | null;
+    phone?: string | null;
+  };
+  customer: {
+    id: string;
+    name: string;
+    phone?: string | null;
+    email?: string | null;
+  } | null;
+}
+
+/**
+ * Fetches the authenticated customer profile from the server.
+ */
+export async function fetchCustomerProfile(options?: {
+  token?: string | undefined;
+}): Promise<CustomerProfileData | null> {
+  const headers: Record<string, string> = {};
+  let token = options?.token;
+  if (!token && typeof window !== "undefined") {
+    try {
+      const { data } = await supabase.auth.getSession();
+      token = data?.session?.access_token;
+    } catch {
+      return null;
+    }
+  }
+
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  } else {
+    return null;
+  }
+
+  try {
+    return await request<CustomerProfileData>("/api/customer/profile", { headers });
+  } catch (err) {
+    console.warn("fetchCustomerProfile failed:", err);
+    return null;
+  }
+}
+
+/**
+ * Updates the authenticated customer's profile fields.
+ */
+export async function updateCustomerProfile(payload: {
+  full_name?: string;
+  phone?: string;
+}): Promise<CustomerProfileData | null> {
+  const headers: Record<string, string> = {};
+  if (typeof window !== "undefined") {
+    try {
+      const { data } = await supabase.auth.getSession();
+      const token = data?.session?.access_token;
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      } else {
+        throw new ApiError("Authentication required", 401);
+      }
+    } catch (e) {
+      if (e instanceof ApiError) throw e;
+      throw new ApiError("Authentication required", 401);
+    }
+  }
+
+  return request<CustomerProfileData>("/api/customer/profile", {
+    method: "PUT",
+    headers,
+    body: JSON.stringify(payload),
+  });
+}
+
 /**
  * Submits a new customer order.
+ * If user is authenticated, passes Bearer token to automatically link order to customer profile.
  */
 export async function createOrder(orderData: CreateOrderPayload): Promise<Order> {
+  const headers: Record<string, string> = {};
+  if (typeof window !== "undefined") {
+    try {
+      const { data } = await supabase.auth.getSession();
+      const token = data?.session?.access_token;
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
   const created = await request<Order>("/api/orders", {
     method: "POST",
+    headers,
     body: JSON.stringify(orderData),
   });
   if (created) {
@@ -760,9 +877,28 @@ export async function createOrder(orderData: CreateOrderPayload): Promise<Order>
 /**
  * Updates order status (e.g., 'received', 'preparing', 'ready', 'delivered').
  */
-export async function updateOrderStatus(id: string, status: OrderStatus): Promise<Order> {
+export async function updateOrderStatus(
+  id: string,
+  status: OrderStatus,
+  options?: { token?: string | undefined },
+): Promise<Order> {
+  const headers: Record<string, string> = {};
+  let token = options?.token;
+  if (!token && typeof window !== "undefined") {
+    try {
+      const { data } = await supabase.auth.getSession();
+      token = data?.session?.access_token;
+    } catch {
+      /* ignore */
+    }
+  }
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
   const updated = await request<Order>(`/api/orders/${encodeURIComponent(id)}`, {
     method: "PATCH",
+    headers,
     body: JSON.stringify({ status }),
   });
   if (updated) {
@@ -835,4 +971,110 @@ export async function updateAboutContent(data: Partial<AboutContent>): Promise<A
     headers,
     body: JSON.stringify(data),
   });
+}
+
+/* ==========================================================================
+   Contact Messages (Public Submission & Admin/Staff Management)
+   ========================================================================== */
+
+/**
+ * Submits a contact message from the public Contact page.
+ */
+export async function submitContactMessage(
+  data: CreateContactMessageInput,
+): Promise<{ success: boolean; message: string; id?: string }> {
+  return request<{ success: boolean; message: string; id?: string }>("/api/contact", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+/**
+ * Fetches all contact messages for authenticated ADMIN / STAFF.
+ */
+export async function fetchContactMessages(options?: {
+  token?: string | undefined;
+}): Promise<ContactMessage[]> {
+  const headers: Record<string, string> = {};
+  let token = options?.token;
+
+  if (!token) {
+    try {
+      const { data } = await supabase.auth.getSession();
+      token = data?.session?.access_token;
+    } catch {
+      // non-browser or unauthenticated
+    }
+  }
+
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
+  return request<ContactMessage[]>("/api/contact-messages", {
+    headers,
+  });
+}
+
+/**
+ * Updates the read status of a contact message (ADMIN / STAFF only).
+ */
+export async function updateContactMessageReadStatus(
+  id: string,
+  isRead: boolean,
+  options?: { token?: string | undefined },
+): Promise<ContactMessage> {
+  const headers: Record<string, string> = {};
+  let token = options?.token;
+
+  if (!token) {
+    try {
+      const { data } = await supabase.auth.getSession();
+      token = data?.session?.access_token;
+    } catch {
+      // non-browser or unauthenticated
+    }
+  }
+
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
+  return request<ContactMessage>(`/api/contact-messages/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers,
+    body: JSON.stringify({ isRead }),
+  });
+}
+
+/**
+ * Deletes a contact message (ADMIN / STAFF only).
+ */
+export async function deleteContactMessage(
+  id: string,
+  options?: { token?: string | undefined },
+): Promise<{ success: boolean; deletedId: string }> {
+  const headers: Record<string, string> = {};
+  let token = options?.token;
+
+  if (!token) {
+    try {
+      const { data } = await supabase.auth.getSession();
+      token = data?.session?.access_token;
+    } catch {
+      // non-browser or unauthenticated
+    }
+  }
+
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
+  return request<{ success: boolean; deletedId: string }>(
+    `/api/contact-messages/${encodeURIComponent(id)}`,
+    {
+      method: "DELETE",
+      headers,
+    },
+  );
 }

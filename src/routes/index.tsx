@@ -11,7 +11,7 @@ import {
   Truck,
   Utensils,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import hero from "@/assets/grilled-beef-hero.png";
 import burgersImage from "@/assets/burgers.png";
@@ -30,15 +30,13 @@ import { ProductCard } from "@/components/site/ProductCard";
 import {
   categories as seedCategories,
   formatETB,
-  getProduct,
   products as seedProducts,
-  promotion,
   registerProducts,
   type Category,
   type Product,
 } from "@/lib/menu-data";
 import { DEFAULT_ABOUT_CONTENT, type AboutContent } from "@/lib/content";
-import type { Promotion } from "@/lib/promotions";
+import { resolveTodaySpecial, type Promotion } from "@/lib/promotions";
 import { cn } from "@/lib/utils";
 import { fetchAboutContent, fetchCategories, fetchProducts, fetchPromotions } from "@/services/api";
 
@@ -165,11 +163,7 @@ function Home() {
   const [productsList, setProductsList] = useState<Product[]>(
     loaderData?.products && loaderData.products.length > 0 ? loaderData.products : seedProducts,
   );
-  const initialActivePromo =
-    loaderData?.promotions?.find((p) => p.status === "active") ||
-    loaderData?.promotions?.[0] ||
-    null;
-  const [activePromotion, setActivePromotion] = useState<Promotion | null>(initialActivePromo);
+  const [promotionsList, setPromotionsList] = useState<Promotion[]>(loaderData?.promotions ?? []);
 
   const [content, setContent] = useState<AboutContent>(
     loaderData?.content || DEFAULT_ABOUT_CONTENT,
@@ -208,9 +202,8 @@ function Home() {
             setProductsList(prods);
             registerProducts(prods);
           }
-          if (promos && promos.length > 0) {
-            const firstActive = promos.find((p) => p.status === "active") || promos[0];
-            if (firstActive) setActivePromotion(firstActive);
+          if (promos) {
+            setPromotionsList(promos);
           }
           if (cnt) {
             setContent(cnt);
@@ -228,10 +221,10 @@ function Home() {
 
   const featured = productsList.filter((p) => p.featured);
   const displayFeatured = featured.length > 0 ? featured : productsList.slice(0, 3);
-  const promoProduct = activePromotion
-    ? productsList.find((p) => activePromotion.applicableProductIds.includes(p.id)) ||
-      getProduct(promotion.productId)
-    : getProduct(promotion.productId);
+  const todaySpecial = useMemo(
+    () => resolveTodaySpecial(promotionsList, productsList),
+    [promotionsList, productsList],
+  );
 
   return (
     <>
@@ -338,13 +331,16 @@ function Home() {
               params={{ category: c.slug }}
               className="surface-card hover-lift flex flex-col gap-1 p-5"
             >
-              {categoryImages[c.slug] && (
-                <img
-                  src={categoryImages[c.slug].src}
-                  alt={categoryImages[c.slug].alt}
-                  className="mb-3 h-16 w-full object-contain object-left"
-                />
-              )}
+              {(() => {
+                const catImg = categoryImages[c.slug];
+                return catImg ? (
+                  <img
+                    src={catImg.src}
+                    alt={catImg.alt}
+                    className="mb-3 h-16 w-full object-contain object-left"
+                  />
+                ) : null;
+              })()}
               <span className="font-display text-lg font-semibold">{c.name}</span>
               <span className="text-sm text-muted-foreground">{c.tagline}</span>
               <ArrowRight className="mt-4 size-4 text-primary" />
@@ -384,10 +380,10 @@ function Home() {
       </Section>
 
       {/* ----------------------------------------------------------------------
-          SECTION 4 â€” PROMOTION
+          SECTION 4 — TODAY'S SPECIAL (DYNAMIC PROMOTION)
           Editorial culinary campaign showcase with floating discount badge
          ---------------------------------------------------------------------- */}
-      {promoProduct && (
+      {todaySpecial && (
         <Section className="pt-0 pb-16 sm:pb-20">
           <div className="group relative surface-card overflow-hidden rounded-3xl border border-border/80 shadow-[var(--shadow-lift)] [perspective:1000px]">
             {/* Subtle ambient brand glow in background */}
@@ -400,8 +396,8 @@ function Home() {
               {/* Left Column: Layered Campaign Image */}
               <div className="relative h-72 min-h-[300px] overflow-hidden sm:h-80 md:col-span-6 md:h-full lg:col-span-5">
                 <img
-                  src={promoProduct.image}
-                  alt={promoProduct.name}
+                  src={todaySpecial.product.image}
+                  alt={todaySpecial.product.name}
                   loading="lazy"
                   width={768}
                   height={768}
@@ -410,49 +406,74 @@ function Home() {
                 {/* Floating Discount Badge */}
                 <div className="absolute top-4 left-4 z-10 flex items-center gap-2 rounded-full border border-primary/30 bg-primary px-3.5 py-1.5 text-xs font-bold uppercase tracking-wider text-primary-foreground shadow-lg">
                   <Sparkles className="size-3.5" aria-hidden />
-                  {promotion.discountLabel}
+                  {todaySpecial.discountBadge}
                 </div>
               </div>
 
               {/* Right Column: Editorial Copy */}
               <div className="relative flex flex-col justify-center space-y-4 p-8 sm:p-10 md:col-span-6 lg:col-span-7 lg:p-12">
-                <div className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-3 py-1 text-xs font-semibold uppercase tracking-[0.22em] text-primary w-fit shadow-xs">
-                  <span className="size-1.5 rounded-full bg-primary animate-pulse" aria-hidden />
-                  {promotion.title}
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-3 py-1 text-xs font-semibold uppercase tracking-[0.22em] text-primary w-fit shadow-xs">
+                    <span className="size-1.5 rounded-full bg-primary animate-pulse" aria-hidden />
+                    Today's Special
+                  </div>
+                  {todaySpecial.promotion.name && (
+                    <span className="inline-flex items-center rounded-full bg-secondary/80 px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
+                      {todaySpecial.promotion.name}
+                    </span>
+                  )}
                 </div>
 
                 <h2 className="font-display text-2xl font-semibold tracking-tight text-foreground sm:text-3xl lg:text-4xl">
-                  {promotion.headline}
+                  {todaySpecial.headline}
                 </h2>
 
-                <p className="max-w-lg text-sm leading-relaxed text-muted-foreground sm:text-base">
-                  {promotion.description}
-                </p>
+                {todaySpecial.description ? (
+                  <p className="max-w-lg text-sm leading-relaxed text-muted-foreground sm:text-base">
+                    {todaySpecial.description}
+                  </p>
+                ) : null}
 
                 <div className="flex flex-wrap items-center gap-3 pt-1">
                   <div className="inline-flex items-center gap-1.5 rounded-full bg-secondary px-3 py-1 text-xs font-medium text-muted-foreground">
                     <Clock className="size-3.5 text-primary" aria-hidden />
-                    {promotion.expiresLabel}
+                    {todaySpecial.expiryLabel}
                   </div>
                 </div>
 
                 <div className="flex items-baseline gap-3 pt-2">
                   <span className="font-display text-3xl font-semibold text-primary">
-                    {formatETB(promoProduct.price)}
+                    {formatETB(todaySpecial.discountedPrice)}
                   </span>
+                  {todaySpecial.hasDiscount && (
+                    <span className="text-base text-muted-foreground line-through sm:text-lg">
+                      {formatETB(todaySpecial.originalPrice)}
+                    </span>
+                  )}
                   <span className="text-xs uppercase tracking-wider text-muted-foreground">
                     Limited Time Special
                   </span>
                 </div>
 
-                <div className="pt-2">
+                <div className="flex flex-wrap items-center gap-3 pt-2">
                   <Button
                     asChild
                     size="lg"
                     className="rounded-full px-7 shadow-md transition-all duration-300 hover:shadow-lg"
                   >
-                    <Link to="/product/$id" params={{ id: promoProduct.id }}>
+                    <Link to="/product/$id" params={{ id: todaySpecial.product.id }}>
                       Order the special
+                      <ArrowRight className="ml-2 size-4" aria-hidden />
+                    </Link>
+                  </Button>
+                  <Button
+                    asChild
+                    variant="outline"
+                    size="lg"
+                    className="rounded-full px-6 transition-all duration-300 hover:bg-secondary"
+                  >
+                    <Link to="/promotions">
+                      View all specials
                       <ArrowRight className="ml-2 size-4" aria-hidden />
                     </Link>
                   </Button>

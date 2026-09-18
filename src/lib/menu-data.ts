@@ -24,6 +24,7 @@ export type Category = {
 
 export type Product = {
   id: string;
+  categoryId?: string | undefined;
   name: string;
   slug: string;
   categorySlug: string;
@@ -46,6 +47,7 @@ export const categories: Category[] = [
 export const products: Product[] = [
   {
     id: "p-1",
+    categoryId: "cat-1",
     name: "Classic Burger",
     slug: "classic-burger",
     categorySlug: "burgers",
@@ -58,6 +60,7 @@ export const products: Product[] = [
   },
   {
     id: "p-2",
+    categoryId: "cat-1",
     name: "Cheese Burger",
     slug: "cheese-burger",
     categorySlug: "burgers",
@@ -70,6 +73,7 @@ export const products: Product[] = [
   },
   {
     id: "p-3",
+    categoryId: "cat-1",
     name: "Chicken Burger",
     slug: "chicken-burger",
     categorySlug: "burgers",
@@ -82,6 +86,7 @@ export const products: Product[] = [
   },
   {
     id: "p-4",
+    categoryId: "cat-2",
     name: "Margherita Pizza",
     slug: "margherita-pizza",
     categorySlug: "pizza",
@@ -94,6 +99,7 @@ export const products: Product[] = [
   },
   {
     id: "p-5",
+    categoryId: "cat-2",
     name: "Chicken Pizza",
     slug: "chicken-pizza",
     categorySlug: "pizza",
@@ -106,6 +112,7 @@ export const products: Product[] = [
   },
   {
     id: "p-6",
+    categoryId: "cat-3",
     name: "French Fries",
     slug: "french-fries",
     categorySlug: "sides",
@@ -118,6 +125,7 @@ export const products: Product[] = [
   },
   {
     id: "p-7",
+    categoryId: "cat-4",
     name: "Coca-Cola",
     slug: "coca-cola",
     categorySlug: "drinks",
@@ -130,6 +138,7 @@ export const products: Product[] = [
   },
   {
     id: "p-8",
+    categoryId: "cat-4",
     name: "Sprite",
     slug: "sprite",
     categorySlug: "drinks",
@@ -142,6 +151,7 @@ export const products: Product[] = [
   },
   {
     id: "p-9",
+    categoryId: "cat-4",
     name: "Water",
     slug: "water",
     categorySlug: "drinks",
@@ -174,8 +184,7 @@ export const getProduct = (id: string): Product | undefined =>
 
 export const getCategory = (slug: string) => categories.find((c) => c.slug === slug);
 
-export const formatETB = (amount: number) =>
-  `${amount.toLocaleString("en-US")} ETB`;
+export const formatETB = (amount: number) => `${amount.toLocaleString("en-US")} ETB`;
 
 export const promotion = {
   title: "Today's Special",

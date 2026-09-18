@@ -58,7 +58,7 @@ function apiDevMiddleware(): Plugin {
       const root = server.config?.root ?? process.cwd();
       loadEnvIntoProcess(root);
 
-      const middleware = async (req: any, res: any, next: any) => {
+      const middleware: import("vite").Connect.NextHandleFunction = async (req, res, next) => {
         const url = req.url ?? "";
         if (!url.startsWith("/api/") && url !== "/api") {
           return next();
@@ -99,12 +99,12 @@ function apiDevMiddleware(): Plugin {
           }
 
           const reqInit: RequestInit = {
-            method: req.method,
+            method: req.method || "GET",
             headers,
           };
           if (bodyBuffer && bodyBuffer.length > 0) {
             reqInit.body = new Uint8Array(bodyBuffer);
-            // @ts-ignore
+            // @ts-expect-error duplex is a valid RequestInit extension in Node 18+ fetch
             reqInit.duplex = "half";
           }
 
