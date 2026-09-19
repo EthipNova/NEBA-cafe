@@ -133,6 +133,9 @@ function apiDevMiddleware(): Plugin {
   };
 }
 
+const nitroPreset =
+  process.env["NITRO_PRESET"] || (process.env["VERCEL"] ? "vercel" : undefined);
+
 export default defineConfig({
   plugins: [apiDevMiddleware()],
   vite: {
@@ -140,6 +143,7 @@ export default defineConfig({
     // Restrict client-side exposed env vars so SUPABASE_SERVICE_ROLE_KEY is never leaked to client bundles
     envPrefix: ["VITE_"],
   },
+  ...(nitroPreset ? { nitro: { preset: nitroPreset } } : {}),
   tanstackStart: {
     // Redirect TanStack Start's bundled server entry to src/server.ts (our SSR error wrapper).
     // nitro/vite builds from this

@@ -312,7 +312,7 @@ export function resolveTodaySpecial(
               description: "",
               ingredients: [],
               price: item.price,
-              image: item.imageUrl || "/src/assets/classic-burger.jpg",
+              image: item.imageUrl || "/images/classic-burger.jpg",
               available: item.isAvailable,
               featured: false,
             };

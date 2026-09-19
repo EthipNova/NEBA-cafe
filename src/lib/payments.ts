@@ -3,13 +3,7 @@ import { supabase } from "@/lib/supabase";
 export type PaymentStatus = "pending" | "paid" | "failed";
 export type OrderMethod = "dine-in" | "takeaway" | "delivery";
 export type OrderStatus =
-  | "received"
-  | "confirmed"
-  | "preparing"
-  | "ready"
-  | "out-for-delivery"
-  | "delivered"
-  | "completed";
+  "received" | "confirmed" | "preparing" | "ready" | "out-for-delivery" | "delivered" | "completed";
 
 export type PaymentProduct = {
   id: string;
@@ -101,7 +95,8 @@ function normalizePaymentRecord(raw: any): PaymentRecord {
         name: item.name,
         quantity: Number(item.quantity) || 1,
         unit_price: Number(item.unit_price) || 0,
-        line_total: Number(item.line_total) || (Number(item.quantity) || 1) * (Number(item.unit_price) || 0),
+        line_total:
+          Number(item.line_total) || (Number(item.quantity) || 1) * (Number(item.unit_price) || 0),
         products: productRaw
           ? {
               id: productRaw.id,
@@ -165,7 +160,8 @@ export async function fetchAdminPayments(): Promise<{
   try {
     const { data, error } = await supabase
       .from("payments" as any)
-      .select(`
+      .select(
+        `
         id,
         order_id,
         method,
@@ -212,7 +208,8 @@ export async function fetchAdminPayments(): Promise<{
             )
           )
         )
-      `)
+      `,
+      )
       .order("created_at", { ascending: false });
 
     if (error) {
@@ -236,9 +233,7 @@ export async function fetchAdminPayments(): Promise<{
  * - Pending Payments: Count & sum of payments with status === 'pending'
  * - Failed Transactions: Count & sum of payments with status === 'failed'
  */
-export function calculatePaymentMetrics(
-  payments: PaymentRecord[],
-): PaymentSummaryMetrics {
+export function calculatePaymentMetrics(payments: PaymentRecord[]): PaymentSummaryMetrics {
   const paidPayments = payments.filter((p) => p.status === "paid");
   const pendingPayments = payments.filter((p) => p.status === "pending");
   const failedPayments = payments.filter((p) => p.status === "failed");

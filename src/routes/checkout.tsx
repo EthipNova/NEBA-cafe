@@ -1,5 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import {
+  AlertTriangle,
   Banknote,
   Check,
   CheckCircle2,
@@ -22,20 +23,27 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { EmptyState, Section } from "@/components/site/Section";
+import { LocationPicker } from "@/components/site/LocationPicker";
 import { useCart } from "@/lib/cart";
 import { formatETB, getProduct } from "@/lib/menu-data";
 import { methodLabels, saveOrder, type OrderMethod } from "@/lib/orders";
 import { createOrder as apiCreateOrder, fetchCustomerProfile, fetchSettings } from "@/services/api";
 import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
+import {
+  calculateDeliveryFee,
+  calculateHaversineDistance,
+  isValidCoordinate,
+} from "@/lib/distance";
+import { DEFAULT_SETTINGS, type NebaSettings } from "@/lib/settings";
 
 export const Route = createFileRoute("/checkout")({
   loader: async () => {
     try {
       const settings = await fetchSettings();
-      return { deliveryFee: settings.deliveryFee };
+      return { settings };
     } catch {
-      return { deliveryFee: 90 };
+      return { settings: DEFAULT_SETTINGS };
     }
   },
   head: () => ({
@@ -62,7 +70,11 @@ function Checkout() {
   const navigate = useNavigate();
   const loaderData = Route.useLoaderData();
   const { lines, subtotal, clear } = useCart();
-  const [deliveryFee, setDeliveryFee] = useState<number>(loaderData?.deliveryFee ?? 90);
+  const [settings, setSettings] = useState<NebaSettings>(loaderData?.settings || DEFAULT_SETTINGS);
+  const [deliveryLocation, setDeliveryLocation] = useState<{
+    latitude: number;
+    longitude: number;
+  } | null>(null);
   const [step, setStep] = useState(0);
   const [method, setMethod] = useState<OrderMethod>("dine-in");
   const [form, setForm] = useState({ name: "", phone: "", table: "", address: "" });
@@ -76,7 +88,7 @@ function Checkout() {
   useEffect(() => {
     fetchSettings()
       .then((s) => {
-        if (s?.deliveryFee !== undefined) setDeliveryFee(s.deliveryFee);
+        if (s) setSettings(s);
       })
       .catch(() => {});
   }, []);
@@ -156,6 +168,53 @@ function Checkout() {
     };
   }, []);
 
+  // Delivery distance and pricing engine
+  const hasCafeCoords = isValidCoordinate(settings.cafeLatitude, settings.cafeLongitude);
+  const hasCustomerCoords =
+    deliveryLocation !== null &&
+    isValidCoordinate(deliveryLocation.latitude, deliveryLocation.longitude);
+
+  let deliveryDistanceKm: number | null = null;
+  let estimatedDeliveryFee = 0;
+  let isDeliveryEligible = false;
+  let deliveryEligibilityReason: string | null = null;
+
+  if (method === "delivery") {
+    if (settings.deliveryEnabled === false) {
+      isDeliveryEligible = false;
+      deliveryEligibilityReason =
+        "Delivery orders are currently disabled. Please choose Takeaway or Dine-in.";
+    } else if (!hasCafeCoords) {
+      isDeliveryEligible = false;
+      deliveryEligibilityReason =
+        "The café delivery location has not been configured yet. Customers cannot place delivery orders at this time. Please select Takeaway or Dine-in.";
+    } else if (!hasCustomerCoords) {
+      isDeliveryEligible = false;
+      deliveryEligibilityReason = "Please pinpoint your delivery location on the map.";
+    } else {
+      deliveryDistanceKm = calculateHaversineDistance(
+        settings.cafeLatitude!,
+        settings.cafeLongitude!,
+        deliveryLocation.latitude,
+        deliveryLocation.longitude,
+      );
+      const feeResult = calculateDeliveryFee(deliveryDistanceKm, settings, {
+        hasCafeCoordinates: true,
+      });
+      isDeliveryEligible = feeResult.eligible;
+      if (feeResult.eligible) {
+        estimatedDeliveryFee = feeResult.fee;
+      } else {
+        deliveryEligibilityReason =
+          feeResult.reason ||
+          `Selected location (${deliveryDistanceKm.toFixed(1)} km) exceeds our maximum delivery radius of ${settings.maxDeliveryDistanceKm} km.`;
+      }
+    }
+  }
+
+  const delivery = method === "delivery" ? estimatedDeliveryFee : 0;
+  const total = subtotal + delivery;
+
   const methodOptions: {
     value: OrderMethod;
     label: string;
@@ -177,13 +236,17 @@ function Checkout() {
     {
       value: "delivery",
       label: "Delivery",
-      text: `Delivered to your location (+${deliveryFee} ETB).`,
+      text:
+        settings.deliveryEnabled === false
+          ? "Delivery is currently disabled."
+          : !hasCafeCoords
+            ? "Café location pending configuration."
+            : hasCustomerCoords && isDeliveryEligible
+              ? `Delivered to your location (+${formatETB(estimatedDeliveryFee)} • ${deliveryDistanceKm?.toFixed(1)} km).`
+              : "Distance-based pricing (location pin required).",
       icon: Truck,
     },
   ];
-
-  const delivery = method === "delivery" ? deliveryFee : 0;
-  const total = subtotal + delivery;
 
   if (lines.length === 0) {
     return (
@@ -222,6 +285,18 @@ function Checkout() {
 
   const validateCurrentStep = (): boolean => {
     if (step === 0) {
+      if (method === "delivery") {
+        if (settings.deliveryEnabled === false) {
+          toast.error("Delivery orders are currently disabled. Please select Takeaway or Dine-in.");
+          return false;
+        }
+        if (!hasCafeCoords) {
+          toast.error(
+            "Delivery is temporarily unavailable because the café location has not been configured. Please choose Takeaway or Dine-in.",
+          );
+          return false;
+        }
+      }
       return true;
     }
 
@@ -243,8 +318,30 @@ function Checkout() {
         }
 
         if (method === "delivery") {
+          if (settings.deliveryEnabled === false) {
+            toast.error(
+              "Delivery orders are currently disabled. Please choose Takeaway or Dine-in.",
+            );
+            return false;
+          }
+          if (!hasCafeCoords) {
+            toast.error(
+              "Delivery is temporarily unavailable because the café location has not been configured. Please choose Takeaway or Dine-in.",
+            );
+            return false;
+          }
+          if (!hasCustomerCoords) {
+            newErrors.address = "Please select your delivery location on the map.";
+          } else if (!isDeliveryEligible) {
+            newErrors.address =
+              deliveryEligibilityReason ||
+              "Selected location is outside our delivery radius. Please select a closer location or choose Takeaway.";
+          }
+
           if (!form.address.trim()) {
-            newErrors.address = "Please enter your delivery address.";
+            newErrors.address =
+              newErrors.address ||
+              "Please enter building name, floor, landmark, or street address.";
           }
         }
       }
@@ -300,18 +397,21 @@ function Checkout() {
       // If mobile wallet, marked paid immediately or verified.
       const initialPaymentStatus: "paid" | "pending" = payment === "cash" ? "pending" : "paid";
 
+      // Client sends only order requirements. Monetary amounts and fees are authoritatively
+      // calculated on the server using canonical database prices and distance settings.
       const orderData = {
         lines: resolvedLines,
         method,
         paymentMethod: paymentMethodName,
         paymentStatus: initialPaymentStatus,
-        delivery,
-        discount: 0,
         customer: {
           name: form.name.trim() || (method === "dine-in" ? "Dine-in guest" : ""),
           phone: form.phone.trim(),
           ...(method === "dine-in" && form.table.trim() ? { table: form.table.trim() } : {}),
           ...(method === "delivery" && form.address.trim() ? { address: form.address.trim() } : {}),
+          ...(method === "delivery" && deliveryLocation
+            ? { latitude: deliveryLocation.latitude, longitude: deliveryLocation.longitude }
+            : {}),
         },
       };
 
@@ -410,11 +510,28 @@ function Checkout() {
             </div>
 
             {method === "delivery" && (
-              <div className="rounded-lg border border-primary/20 bg-primary/5 p-4 text-xs text-muted-foreground">
-                <p className="font-medium text-foreground">Delivery Notice</p>
-                <p className="mt-0.5">
-                  A flat delivery fee of {deliveryFee} ETB will be added to your order summary. You
-                  will provide your delivery address in the next step.
+              <div
+                className={cn(
+                  "rounded-xl border p-4 text-xs space-y-1.5",
+                  settings.deliveryEnabled === false || !hasCafeCoords
+                    ? "border-amber-500/30 bg-amber-500/10 text-amber-800 dark:text-amber-200"
+                    : "border-primary/20 bg-primary/5 text-muted-foreground",
+                )}
+              >
+                <div className="flex items-center gap-2 font-medium">
+                  {settings.deliveryEnabled === false || !hasCafeCoords ? (
+                    <AlertTriangle className="size-4 text-amber-500 shrink-0" />
+                  ) : (
+                    <Truck className="size-4 text-primary shrink-0" />
+                  )}
+                  <span className="text-foreground font-semibold">Delivery Information</span>
+                </div>
+                <p>
+                  {settings.deliveryEnabled === false
+                    ? "Delivery orders are currently disabled. Please select Takeaway or Dine-in."
+                    : !hasCafeCoords
+                      ? "Delivery is currently unavailable because the café location has not been configured. Please choose Takeaway or Dine-in."
+                      : `Delivery fee is calculated strictly by distance (${settings.pricePerKm} ETB/km, min ${settings.minDeliveryFee} ETB, max radius ${settings.maxDeliveryDistanceKm} km). You will pinpoint your exact location on an interactive map in the next step.`}
                 </p>
               </div>
             )}
@@ -580,27 +697,53 @@ function Checkout() {
                 </div>
 
                 {method === "delivery" && (
-                  <div className="space-y-1.5 pt-2">
-                    <Label htmlFor="address" className="text-sm font-medium">
-                      Delivery address <span className="text-destructive">*</span>
-                    </Label>
-                    <Input
-                      id="address"
-                      value={form.address}
-                      onChange={(e) => handleFieldChange("address", e.target.value)}
-                      placeholder="Street name, building, apartment, landmark"
-                      autoComplete="street-address"
-                      aria-invalid={!!errors.address}
-                      aria-describedby={errors.address ? "error-address" : undefined}
-                      className={cn(
-                        errors.address && "border-destructive focus-visible:ring-destructive",
-                      )}
+                  <div className="space-y-4 pt-2">
+                    <LocationPicker
+                      cafeLatitude={settings.cafeLatitude}
+                      cafeLongitude={settings.cafeLongitude}
+                      selectedLatitude={deliveryLocation?.latitude ?? null}
+                      selectedLongitude={deliveryLocation?.longitude ?? null}
+                      onLocationChange={(coords) => {
+                        setDeliveryLocation(coords);
+                        if (errors.address) {
+                          setErrors((prev) => {
+                            const next = { ...prev };
+                            delete next.address;
+                            return next;
+                          });
+                        }
+                      }}
+                      pricePerKm={settings.pricePerKm}
+                      minDeliveryFee={settings.minDeliveryFee}
+                      maxDeliveryDistanceKm={settings.maxDeliveryDistanceKm}
+                      roundingRule={settings.roundingRule}
+                      deliveryEnabled={settings.deliveryEnabled}
+                      disabled={submitting}
                     />
-                    {errors.address && (
-                      <p id="error-address" role="alert" className="text-xs text-destructive">
-                        {errors.address}
-                      </p>
-                    )}
+
+                    <div className="space-y-1.5">
+                      <Label htmlFor="address" className="text-sm font-medium">
+                        Building, floor, landmark & delivery notes{" "}
+                        <span className="text-destructive">*</span>
+                      </Label>
+                      <Input
+                        id="address"
+                        value={form.address}
+                        onChange={(e) => handleFieldChange("address", e.target.value)}
+                        placeholder="Building name, floor, landmark, nearby shop..."
+                        autoComplete="street-address"
+                        aria-invalid={!!errors.address}
+                        aria-describedby={errors.address ? "error-address" : undefined}
+                        className={cn(
+                          errors.address && "border-destructive focus-visible:ring-destructive",
+                        )}
+                      />
+                      {errors.address && (
+                        <p id="error-address" role="alert" className="text-xs text-destructive">
+                          {errors.address}
+                        </p>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>
@@ -687,11 +830,27 @@ function Checkout() {
                     <dd className="inline">{form.phone}</dd>
                   </div>
                 )}
-                {method === "delivery" && form.address && (
-                  <div className="sm:col-span-2">
-                    <dt className="inline font-medium text-foreground">Delivery address: </dt>
-                    <dd className="inline">{form.address}</dd>
-                  </div>
+                {method === "delivery" && (
+                  <>
+                    {form.address && (
+                      <div className="sm:col-span-2">
+                        <dt className="inline font-medium text-foreground">Delivery address: </dt>
+                        <dd className="inline">{form.address}</dd>
+                      </div>
+                    )}
+                    {deliveryDistanceKm !== null && (
+                      <div>
+                        <dt className="inline font-medium text-foreground">Distance: </dt>
+                        <dd className="inline">{deliveryDistanceKm.toFixed(1)} KM</dd>
+                      </div>
+                    )}
+                    <div>
+                      <dt className="inline font-medium text-foreground">Estimated Delivery: </dt>
+                      <dd className="inline font-semibold text-primary">
+                        {formatETB(estimatedDeliveryFee)}
+                      </dd>
+                    </div>
+                  </>
                 )}
               </dl>
             </div>
@@ -705,7 +864,9 @@ function Checkout() {
               <div className="flex justify-between">
                 <dt className="text-muted-foreground">Delivery fee</dt>
                 <dd className="font-medium">
-                  {delivery > 0 ? formatETB(delivery) : "Free (Dine-in / Takeaway)"}
+                  {method === "delivery"
+                    ? `${formatETB(estimatedDeliveryFee)}${deliveryDistanceKm !== null ? ` (${deliveryDistanceKm.toFixed(1)} KM)` : ""}`
+                    : "Free (Dine-in / Takeaway)"}
                 </dd>
               </div>
               <div className="flex justify-between">
@@ -961,7 +1122,14 @@ function Checkout() {
           </Button>
 
           {step < steps.length - 1 ? (
-            <Button onClick={next}>Continue</Button>
+            <Button
+              onClick={next}
+              disabled={
+                step === 1 && method === "delivery" && (!hasCustomerCoords || !isDeliveryEligible)
+              }
+            >
+              Continue
+            </Button>
           ) : (
             <Button onClick={pay} disabled={submitting}>
               <CreditCard className="size-4" />

@@ -225,6 +225,14 @@ export async function handleApiRequest(request: Request): Promise<Response> {
       }
 
       if (method === "POST") {
+        const authUser = await resolveAuthUser(request);
+        if (!authUser) {
+          return unauthorized("Authentication required");
+        }
+        if (authUser.role !== "ADMIN" && authUser.role !== "STAFF") {
+          return forbidden("Only administrators and staff can create products");
+        }
+
         const body = await request.json().catch(() => null);
         if (!body || typeof body !== "object" || !body.name || body.price === undefined) {
           return badRequest("Missing required fields: 'name' and 'price'");
@@ -247,6 +255,14 @@ export async function handleApiRequest(request: Request): Promise<Response> {
       }
 
       if (method === "PUT" || method === "PATCH") {
+        const authUser = await resolveAuthUser(request);
+        if (!authUser) {
+          return unauthorized("Authentication required");
+        }
+        if (authUser.role !== "ADMIN" && authUser.role !== "STAFF") {
+          return forbidden("Only administrators and staff can update products");
+        }
+
         const body = await request.json().catch(() => null);
         if (!body || typeof body !== "object") {
           return badRequest("Invalid JSON body");
@@ -257,6 +273,14 @@ export async function handleApiRequest(request: Request): Promise<Response> {
       }
 
       if (method === "DELETE") {
+        const authUser = await resolveAuthUser(request);
+        if (!authUser) {
+          return unauthorized("Authentication required");
+        }
+        if (authUser.role !== "ADMIN" && authUser.role !== "STAFF") {
+          return forbidden("Only administrators and staff can delete products");
+        }
+
         const deleted = await deleteProduct(productId);
         if (!deleted) return notFound(`Product '${productId}' not found`);
         return json({ success: true, deletedId: productId });
@@ -314,7 +338,16 @@ export async function handleApiRequest(request: Request): Promise<Response> {
         } catch (err: unknown) {
           const message = err instanceof Error ? err.message : "Failed to create order";
           console.error("[api] Order creation error:", err);
-          return json({ error: "Order Creation Failed", message }, 500);
+          const isInternal =
+            message.startsWith("Failed to create order:") ||
+            message.startsWith("Failed to create customer") ||
+            message.startsWith("Failed to create payment") ||
+            message.startsWith("Failed to generate order number");
+          const statusCode = isInternal ? 500 : 400;
+          return json(
+            { error: isInternal ? "Order Creation Failed" : "Invalid Order Request", message },
+            statusCode,
+          );
         }
       }
 
@@ -380,6 +413,14 @@ export async function handleApiRequest(request: Request): Promise<Response> {
     if (orderPaymentMatch) {
       const orderId = decodeURIComponent(orderPaymentMatch[1]!);
       if (method === "PATCH" || method === "POST" || method === "PUT") {
+        const authUser = await resolveAuthUser(request);
+        if (!authUser) {
+          return unauthorized("Authentication required to update order payment");
+        }
+        if (authUser.role !== "ADMIN" && authUser.role !== "STAFF") {
+          return forbidden("Only administrators and staff can update order payment status");
+        }
+
         const body = await request.json().catch(() => null);
         if (!body || typeof body !== "object" || !body.paymentStatus) {
           return badRequest("Field 'paymentStatus' ('paid', 'pending', or 'failed') is required.");
@@ -468,6 +509,9 @@ export async function handleApiRequest(request: Request): Promise<Response> {
         }
 
         if (body.paymentStatus) {
+          if (authUser.role !== "ADMIN" && authUser.role !== "STAFF") {
+            return forbidden("Only administrators and staff can update payment status.");
+          }
           updated = await updateOrderPayment(orderId, {
             paymentStatus: body.paymentStatus,
             paymentMethod: body.paymentMethod,
@@ -499,6 +543,14 @@ export async function handleApiRequest(request: Request): Promise<Response> {
       }
 
       if (method === "PUT") {
+        const authUser = await resolveAuthUser(request);
+        if (!authUser) {
+          return unauthorized("Authentication required");
+        }
+        if (authUser.role !== "ADMIN" && authUser.role !== "STAFF") {
+          return forbidden("Only administrators and staff can update promotions");
+        }
+
         const body = await request.json().catch(() => null);
         if (Array.isArray(body)) {
           const updated = await updatePromotions(body as Promotion[]);
@@ -514,6 +566,14 @@ export async function handleApiRequest(request: Request): Promise<Response> {
       }
 
       if (method === "POST") {
+        const authUser = await resolveAuthUser(request);
+        if (!authUser) {
+          return unauthorized("Authentication required");
+        }
+        if (authUser.role !== "ADMIN" && authUser.role !== "STAFF") {
+          return forbidden("Only administrators and staff can create promotions");
+        }
+
         const body = await request.json().catch(() => null);
         if (!body || typeof body !== "object" || !body.name || body.discountValue === undefined) {
           return badRequest("Missing required fields: 'name' and 'discountValue'");
@@ -545,6 +605,14 @@ export async function handleApiRequest(request: Request): Promise<Response> {
     if (promoMatch) {
       const promoId = decodeURIComponent(promoMatch[1]!);
       if (method === "DELETE") {
+        const authUser = await resolveAuthUser(request);
+        if (!authUser) {
+          return unauthorized("Authentication required");
+        }
+        if (authUser.role !== "ADMIN" && authUser.role !== "STAFF") {
+          return forbidden("Only administrators and staff can delete promotions");
+        }
+
         const deleted = await deletePromotion(promoId);
         if (!deleted) return notFound(`Promotion '${promoId}' not found`);
         return json({ success: true, deletedId: promoId });
@@ -564,6 +632,14 @@ export async function handleApiRequest(request: Request): Promise<Response> {
       }
 
       if (method === "PUT" || method === "PATCH") {
+        const authUser = await resolveAuthUser(request);
+        if (!authUser) {
+          return unauthorized("Authentication required");
+        }
+        if (authUser.role !== "ADMIN" && authUser.role !== "STAFF") {
+          return forbidden("Only administrators and staff can update store settings");
+        }
+
         const body = await request.json().catch(() => null);
         if (!body || typeof body !== "object") {
           return badRequest("Invalid JSON body");

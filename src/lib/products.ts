@@ -50,8 +50,8 @@ function generateUUID(): string {
     typeof globalThis !== "undefined" && globalThis.crypto
       ? globalThis.crypto
       : typeof crypto !== "undefined"
-      ? crypto
-      : undefined;
+        ? crypto
+        : undefined;
 
   if (cryptoObj && typeof cryptoObj.randomUUID === "function") {
     return cryptoObj.randomUUID();
@@ -65,9 +65,7 @@ function generateUUID(): string {
     bytes[6] = ((bytes[6] ?? 0) & 0x0f) | 0x40; // 4-bit version 4 (0100)
     bytes[8] = ((bytes[8] ?? 0) & 0x3f) | 0x80; // 2-bit variant 1 (10)
 
-    const hex = Array.from(bytes, (byte) =>
-      byte.toString(16).padStart(2, "0")
-    ).join("");
+    const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 
     return [
       hex.slice(0, 8),
@@ -165,7 +163,8 @@ export async function fetchAdminProducts(): Promise<{
 }> {
   try {
     const { data, error } = await (supabase.from("products" as any) as any)
-      .select(`
+      .select(
+        `
         id,
         category_id,
         name,
@@ -185,7 +184,8 @@ export async function fetchAdminProducts(): Promise<{
           tagline,
           is_active
         )
-      `)
+      `,
+      )
       .order("created_at", { ascending: false });
 
     if (error) {
@@ -235,7 +235,7 @@ export async function fetchAdminCategories(): Promise<{
  */
 export async function createAdminProduct(
   input: CreateProductInput,
-  categoriesList?: Category[]
+  categoriesList?: Category[],
 ): Promise<{
   data: Product | null;
   error: Error | null;
@@ -266,7 +266,8 @@ export async function createAdminProduct(
 
     const { data, error } = await (supabase.from("products" as any) as any)
       .insert(newRecord)
-      .select(`
+      .select(
+        `
         id,
         category_id,
         name,
@@ -286,7 +287,8 @@ export async function createAdminProduct(
           tagline,
           is_active
         )
-      `)
+      `,
+      )
       .single();
 
     if (error) {
@@ -320,7 +322,7 @@ export async function createAdminProduct(
  */
 export async function updateAdminProduct(
   input: UpdateProductInput,
-  categoriesList?: Category[]
+  categoriesList?: Category[],
 ): Promise<{
   data: Product | null;
   error: Error | null;
@@ -348,7 +350,8 @@ export async function updateAdminProduct(
     const { data, error } = await (supabase.from("products" as any) as any)
       .update(updateFields)
       .eq("id", input.id)
-      .select(`
+      .select(
+        `
         id,
         category_id,
         name,
@@ -368,7 +371,8 @@ export async function updateAdminProduct(
           tagline,
           is_active
         )
-      `)
+      `,
+      )
       .single();
 
     if (error) {
@@ -390,7 +394,7 @@ export async function updateAdminProduct(
  */
 export async function toggleAdminProductAvailability(
   id: string,
-  isAvailable: boolean
+  isAvailable: boolean,
 ): Promise<{ success: boolean; error: Error | null }> {
   try {
     const { error } = await (supabase.from("products" as any) as any)
@@ -408,8 +412,7 @@ export async function toggleAdminProductAvailability(
   } catch (err: any) {
     return {
       success: false,
-      error:
-        err instanceof Error ? err : new Error("Failed to update product availability"),
+      error: err instanceof Error ? err : new Error("Failed to update product availability"),
     };
   }
 }

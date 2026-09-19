@@ -42,11 +42,7 @@ import {
 import { EmptyState } from "@/components/site/Section";
 import { formatETB, getProduct } from "@/lib/menu-data";
 import { methodLabels, statusLabels } from "@/lib/orders";
-import {
-  calculatePaymentMetrics,
-  fetchAdminPayments,
-  type PaymentRecord,
-} from "@/lib/payments";
+import { calculatePaymentMetrics, fetchAdminPayments, type PaymentRecord } from "@/lib/payments";
 
 export const Route = createFileRoute("/admin/payments")({
   head: () => ({
@@ -190,8 +186,7 @@ function AdminPayments() {
     return 0;
   });
 
-  const selectedPayment =
-    safePayments.find((p) => p.id === selectedPaymentId) ?? null;
+  const selectedPayment = safePayments.find((p) => p.id === selectedPaymentId) ?? null;
 
   const resetFilters = () => {
     setSearchQuery("");
@@ -218,12 +213,13 @@ function AdminPayments() {
             Monitor customer transactions, settlement states, and café revenue.
           </p>
           <div className="mt-2 rounded-lg border border-border/60 bg-muted/30 p-2.5 text-xs text-muted-foreground inline-flex items-center gap-2">
-            <Badge variant="outline" className="text-[10px] uppercase font-semibold text-primary border-primary/30">
+            <Badge
+              variant="outline"
+              className="text-[10px] uppercase font-semibold text-primary border-primary/30"
+            >
               Supabase Live
             </Badge>
-            <span>
-              Live settlement and transaction records verified from production database.
-            </span>
+            <span>Live settlement and transaction records verified from production database.</span>
           </div>
         </div>
 
@@ -391,8 +387,8 @@ function AdminPayments() {
 
           <div className="flex items-center gap-3">
             <span>
-              Showing <strong>{sortedPayments.length}</strong> of <strong>{safePayments.length}</strong>{" "}
-              transactions
+              Showing <strong>{sortedPayments.length}</strong> of{" "}
+              <strong>{safePayments.length}</strong> transactions
             </span>
             {isFiltered && (
               <Button
@@ -419,9 +415,7 @@ function AdminPayments() {
             <h3 className="font-display text-lg font-semibold text-foreground">
               Unable to load payment records
             </h3>
-            <p className="text-xs text-muted-foreground max-w-md mx-auto">
-              {error}
-            </p>
+            <p className="text-xs text-muted-foreground max-w-md mx-auto">{error}</p>
           </div>
           <Button onClick={loadPayments} size="sm" className="gap-2">
             <RefreshCw className="size-3.5" aria-hidden />
@@ -576,7 +570,8 @@ function AdminPayments() {
               <SheetHeader className="text-left space-y-2 pb-4 border-b border-border">
                 <div className="flex items-center justify-between gap-2 pr-6">
                   <SheetTitle className="font-display text-2xl font-bold">
-                    Payment #{selectedPayment.orders?.order_number || selectedPayment.id.slice(0, 8)}
+                    Payment #
+                    {selectedPayment.orders?.order_number || selectedPayment.id.slice(0, 8)}
                   </SheetTitle>
                   <PaymentStatusBadge status={selectedPayment.status} />
                 </div>
@@ -606,9 +601,7 @@ function AdminPayments() {
                 <div className="rounded-xl border border-border bg-card/60 p-4 space-y-2.5 text-sm">
                   <div className="flex items-center justify-between">
                     <span className="text-muted-foreground text-xs">Payment Method</span>
-                    <span className="font-medium text-foreground">
-                      {selectedPayment.method}
-                    </span>
+                    <span className="font-medium text-foreground">{selectedPayment.method}</span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-muted-foreground text-xs">Payment Status</span>
@@ -665,7 +658,8 @@ function AdminPayments() {
                     <span className="text-muted-foreground text-xs">Fulfillment Method</span>
                     <span className="font-medium text-foreground">
                       {selectedPayment.orders
-                        ? methodLabels[selectedPayment.orders.method] || selectedPayment.orders.method
+                        ? methodLabels[selectedPayment.orders.method] ||
+                          selectedPayment.orders.method
                         : "Dine-in"}
                     </span>
                   </div>
@@ -673,7 +667,8 @@ function AdminPayments() {
                     <span className="text-muted-foreground text-xs">Order Stage</span>
                     <Badge variant="outline" className="text-xs font-medium">
                       {selectedPayment.orders
-                        ? statusLabels[selectedPayment.orders.status] || selectedPayment.orders.status
+                        ? statusLabels[selectedPayment.orders.status] ||
+                          selectedPayment.orders.status
                         : "Recorded"}
                     </Badge>
                   </div>
@@ -714,23 +709,25 @@ function AdminPayments() {
                     </div>
                   )}
 
-                  {selectedPayment.orders?.method === "dine-in" && selectedPayment.orders?.table_number && (
-                    <div className="flex items-center justify-between">
-                      <span className="text-muted-foreground text-xs">Table</span>
-                      <span className="font-semibold text-foreground">
-                        Table #{selectedPayment.orders.table_number}
-                      </span>
-                    </div>
-                  )}
+                  {selectedPayment.orders?.method === "dine-in" &&
+                    selectedPayment.orders?.table_number && (
+                      <div className="flex items-center justify-between">
+                        <span className="text-muted-foreground text-xs">Table</span>
+                        <span className="font-semibold text-foreground">
+                          Table #{selectedPayment.orders.table_number}
+                        </span>
+                      </div>
+                    )}
 
-                  {selectedPayment.orders?.method === "delivery" && selectedPayment.orders?.delivery_address && (
-                    <div className="border-t border-border/50 pt-2 text-xs">
-                      <span className="text-muted-foreground block mb-1">Delivery Address</span>
-                      <span className="font-medium text-foreground leading-relaxed">
-                        📍 {selectedPayment.orders.delivery_address}
-                      </span>
-                    </div>
-                  )}
+                  {selectedPayment.orders?.method === "delivery" &&
+                    selectedPayment.orders?.delivery_address && (
+                      <div className="border-t border-border/50 pt-2 text-xs">
+                        <span className="text-muted-foreground block mb-1">Delivery Address</span>
+                        <span className="font-medium text-foreground leading-relaxed">
+                          📍 {selectedPayment.orders.delivery_address}
+                        </span>
+                      </div>
+                    )}
                 </div>
               </section>
 
@@ -749,7 +746,8 @@ function AdminPayments() {
                   </span>
                 </div>
 
-                {selectedPayment.orders?.order_items && selectedPayment.orders.order_items.length > 0 ? (
+                {selectedPayment.orders?.order_items &&
+                selectedPayment.orders.order_items.length > 0 ? (
                   <ul className="divide-y divide-border rounded-xl border border-border bg-card/60 px-4">
                     {selectedPayment.orders.order_items.map((item, idx) => {
                       const localProduct = getProduct(item.product_id);

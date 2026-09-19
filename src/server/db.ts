@@ -5,7 +5,12 @@ import path from "node:path";
 import type { Category, Product } from "@/lib/menu-data";
 import type { Order, OrderItem, OrderStatus } from "@/lib/orders";
 import type { Promotion, DiscountType, PromotionStatus } from "@/lib/promotions";
-import { DEFAULT_SETTINGS, type NebaSettings } from "@/lib/settings";
+import { DEFAULT_SETTINGS, normalizeStoreSettings, type NebaSettings } from "@/lib/settings";
+import {
+  calculateDeliveryFee,
+  calculateHaversineDistance,
+  isValidCoordinate,
+} from "@/lib/distance";
 import { serverSupabase as supabase } from "./supabase";
 import { type AboutContent, DEFAULT_ABOUT_CONTENT, normalizeAboutContent } from "@/lib/content";
 import { createScopedClient } from "@/lib/supabase";
@@ -73,6 +78,12 @@ export async function readDb(): Promise<DatabaseSchema> {
  * Writes data to data/db.json for offline backup.
  */
 export async function writeDb(data: DatabaseSchema): Promise<void> {
+  // In serverless environments (e.g. Vercel) the filesystem is read-only.
+  // Skip filesystem writes so operations rely purely on authoritative Supabase persistence.
+  if (process.env["VERCEL"] || process.env["AWS_LAMBDA_FUNCTION_NAME"]) {
+    return;
+  }
+
   const filePath = resolveDbPath();
   const dir = path.dirname(filePath);
 
@@ -100,30 +111,30 @@ function getProductFallbackImage(name: string, categorySlug?: string): string {
   const cat = (categorySlug || "").toLowerCase();
 
   if (n.includes("pizza") || cat.includes("pizza")) {
-    return "/src/assets/margherita.jpg";
+    return "/images/margherita.jpg";
   }
   if (n.includes("chicken") && n.includes("burger")) {
-    return "/src/assets/chicken-burger.jpg";
+    return "/images/chicken-burger.jpg";
   }
   if (n.includes("cheese") && n.includes("burger")) {
-    return "/src/assets/cheese-burger.jpg";
+    return "/images/cheese-burger.jpg";
   }
   if (n.includes("burger") || cat.includes("burger")) {
-    return "/src/assets/classic-burger.jpg";
+    return "/images/classic-burger.jpg";
   }
   if (n.includes("fries") || n.includes("chip") || cat.includes("side")) {
-    return "/src/assets/fries.jpg";
+    return "/images/fries.jpg";
   }
   if (n.includes("sprite")) {
-    return "/src/assets/sprite.jpg";
+    return "/images/sprite.jpg";
   }
   if (n.includes("water")) {
-    return "/src/assets/water.jpg";
+    return "/images/water.jpg";
   }
   if (n.includes("drink") || n.includes("cola") || cat.includes("drink")) {
-    return "/src/assets/cola.jpg";
+    return "/images/cola.jpg";
   }
-  return "/src/assets/hero.jpg";
+  return "/images/hero.jpg";
 }
 
 /* ==========================================================================
@@ -251,11 +262,23 @@ function normalizeOrder(raw: any): Order {
       phone: raw.customer_phone || "",
       table: raw.table_number || undefined,
       address: raw.delivery_address || undefined,
+      latitude:
+        raw.delivery_latitude !== null && raw.delivery_latitude !== undefined
+          ? Number(raw.delivery_latitude)
+          : null,
+      longitude:
+        raw.delivery_longitude !== null && raw.delivery_longitude !== undefined
+          ? Number(raw.delivery_longitude)
+          : null,
     },
     items,
     subtotal: Number(raw.subtotal) || 0,
     discount: Number(raw.discount_amount) || 0,
     delivery: Number(raw.delivery_fee) || 0,
+    distanceKm:
+      raw.delivery_distance_km !== null && raw.delivery_distance_km !== undefined
+        ? Number(raw.delivery_distance_km)
+        : null,
     total: Number(raw.total_amount) || 0,
   };
 }
@@ -526,6 +549,9 @@ export async function getOrders(
         status,
         table_number,
         delivery_address,
+        delivery_latitude,
+        delivery_longitude,
+        delivery_distance_km,
         subtotal,
         discount_amount,
         delivery_fee,
@@ -617,6 +643,9 @@ export async function getOrdersForCustomerUser(userId: string, client?: any): Pr
         status,
         table_number,
         delivery_address,
+        delivery_latitude,
+        delivery_longitude,
+        delivery_distance_km,
         subtotal,
         discount_amount,
         delivery_fee,
@@ -775,6 +804,9 @@ export async function getOrderById(id: string, client?: any): Promise<Order | un
         status,
         table_number,
         delivery_address,
+        delivery_latitude,
+        delivery_longitude,
+        delivery_distance_km,
         subtotal,
         discount_amount,
         delivery_fee,
@@ -835,31 +867,110 @@ export async function createOrder(
 ): Promise<Order> {
   const dbClient = client || supabase;
 
-  // ── Step A: Resolve product details ────────────────────────────────────────
-  const products = await getProducts();
-  const items: OrderItem[] = input.lines.flatMap((line) => {
-    const product = products.find((p) => p.id === line.productId || p.slug === line.productId);
-    const name = line.name || product?.name || "Menu Item";
-    const price =
-      line.price !== undefined
-        ? Number(line.price)
-        : product?.price !== undefined
-          ? Number(product.price)
-          : 0;
-    return [
-      {
-        productId: product?.id || line.productId,
-        name,
-        quantity: Math.max(1, Number(line.quantity) || 1),
-        price,
-      },
-    ];
-  });
+  // ── Step A: Canonical product resolution & server-side pricing ─────────────
+  if (!Array.isArray(input.lines) || input.lines.length === 0) {
+    throw new Error("Order must contain at least one item.");
+  }
+
+  const allProducts = await getProducts();
+  const productMap = new Map(allProducts.map((p) => [p.id, p]));
+  for (const p of allProducts) {
+    if (p.slug) productMap.set(p.slug, p);
+  }
+
+  const items: OrderItem[] = [];
+  for (const line of input.lines) {
+    const product = productMap.get(line.productId);
+    if (!product) {
+      throw new Error(`Invalid product: Item with ID "${line.productId}" was not found.`);
+    }
+    if (product.available === false) {
+      throw new Error(`Product unavailable: "${product.name}" is currently not available.`);
+    }
+
+    const qty = Number(line.quantity);
+    if (!Number.isInteger(qty) || qty <= 0) {
+      throw new Error(
+        `Invalid quantity for product "${product.name}". Must be a positive whole number.`,
+      );
+    }
+
+    // Strictly server-authoritative price from database. Ignore any client-supplied line.price.
+    const price = Number(product.price);
+
+    items.push({
+      productId: product.id,
+      name: product.name,
+      quantity: qty,
+      price,
+    });
+  }
 
   const subtotal = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
-  const discount = Math.max(0, Number(input.discount) || 0);
-  const delivery =
-    input.delivery !== undefined ? Number(input.delivery) : input.method === "delivery" ? 90 : 0;
+
+  // Authoritative discount: NEBA Café promotions are item-level menu discounts.
+  // There is no server-authoritative coupon/discount code mechanism for orders.
+  // The authoritative discount is strictly 0. Ignore any client-supplied input.discount.
+  const discount = 0;
+
+  // ── Step B: Authoritative delivery calculation ─────────────────────────────
+  let delivery = 0;
+  let deliveryLatitude: number | null = null;
+  let deliveryLongitude: number | null = null;
+  let deliveryDistanceKm: number | null = null;
+
+  if (input.method === "delivery") {
+    const settings = await getSettings();
+
+    if (settings.deliveryEnabled === false) {
+      throw new Error("Delivery orders are currently disabled. Please choose Takeaway or Dine-in.");
+    }
+
+    if (!isValidCoordinate(settings.cafeLatitude, settings.cafeLongitude)) {
+      throw new Error(
+        "Delivery is currently unavailable because the café location has not been configured. Please choose Takeaway or Dine-in.",
+      );
+    }
+
+    const custLat = input.customer?.latitude;
+    const custLng = input.customer?.longitude;
+
+    if (!isValidCoordinate(custLat, custLng)) {
+      throw new Error(
+        "Valid delivery coordinates are required for delivery orders. Please select your location on the map or choose Takeaway or Dine-in.",
+      );
+    }
+
+    const latNum = Number(custLat);
+    const lngNum = Number(custLng);
+
+    const distance = calculateHaversineDistance(
+      settings.cafeLatitude!,
+      settings.cafeLongitude!,
+      latNum,
+      lngNum,
+    );
+
+    const feeResult = calculateDeliveryFee(distance, settings);
+    if (!feeResult.eligible) {
+      throw new Error(
+        feeResult.reason ||
+          `Your selected location is outside our delivery area (${distance.toFixed(1)} km away). Maximum delivery distance is ${settings.maxDeliveryDistanceKm} km. Please choose Takeaway or Dine-in.`,
+      );
+    }
+
+    delivery = feeResult.fee;
+    deliveryLatitude = latNum;
+    deliveryLongitude = lngNum;
+    deliveryDistanceKm = distance;
+  } else {
+    // For dine-in and takeaway, delivery fee must always be 0
+    delivery = 0;
+    deliveryLatitude = null;
+    deliveryLongitude = null;
+    deliveryDistanceKm = null;
+  }
+
   const total = Math.max(0, subtotal - discount + delivery);
   const paymentStatus = input.paymentStatus || "paid";
   const paymentMethod = input.paymentMethod || "Mobile Payment";
@@ -881,7 +992,7 @@ export async function createOrder(
   const customerName =
     input.customer?.name?.trim() || (input.method === "dine-in" ? "Dine-in Guest" : "Guest");
 
-  // ── Step B: Customer Identification & Resolution ───────────────────────────
+  // ── Step C: Customer Identification & Resolution ───────────────────────────
   let customerId: string | null = null;
 
   // Normalise phone for consistent deduplication across +251/09/251 formats
@@ -893,7 +1004,7 @@ export async function createOrder(
     : "";
 
   if (input.authUserId) {
-    // ── B0: Authenticated Customer: Resolve or create record linked to auth.users.id
+    // ── C0: Authenticated Customer: Resolve or create record linked to auth.users.id
     // Must use token-scoped client to satisfy customer RLS (auth.uid() = user_id)
     try {
       const { data: byUser } = await (dbClient.from("customers" as any) as any)
@@ -951,7 +1062,7 @@ export async function createOrder(
       );
     }
   } else {
-    // ── B1 & B2: Guest Checkout (no auth user): Create guest customer with known UUID
+    // ── C1 & C2: Guest Checkout (no auth user): Create guest customer with known UUID
     // Pure INSERT without .select() to avoid anonymous SELECT RLS restriction (42501)
     try {
       const newCustId = crypto.randomUUID();
@@ -991,7 +1102,7 @@ export async function createOrder(
     }
   }
 
-  // ── Step C: Insert the order row (FATAL if this fails) ─────────────────────
+  // ── Step D: Insert the order row (FATAL if this fails) ─────────────────────
   const orderRecord = {
     id: orderId,
     order_number: orderNumber,
@@ -1002,6 +1113,9 @@ export async function createOrder(
     status: "received",
     table_number: input.customer?.table || null,
     delivery_address: input.customer?.address || null,
+    delivery_latitude: deliveryLatitude,
+    delivery_longitude: deliveryLongitude,
+    delivery_distance_km: deliveryDistanceKm,
     subtotal,
     discount_amount: discount,
     delivery_fee: delivery,
@@ -1017,9 +1131,9 @@ export async function createOrder(
     throw new Error(`Failed to create order: ${ordErr.message || String(ordErr)}`);
   }
 
-  // ── Step D: Insert order items (FATAL if this fails) ───────────────────────
+  // ── Step E: Insert order items (FATAL if this fails) ───────────────────────
   if (items.length > 0) {
-    const supabaseProductIds = new Set(products.map((p) => p.id));
+    const supabaseProductIds = new Set(allProducts.map((p) => p.id));
 
     const itemRecords = items.map((it) => ({
       order_id: orderId,
@@ -1038,7 +1152,7 @@ export async function createOrder(
     }
   }
 
-  // ── Step E: Insert payment record (FATAL if this fails) ────────────────────
+  // ── Step F: Insert payment record (FATAL if this fails) ────────────────────
   const { error: payErr } = await (dbClient.from("payments" as any) as any).insert({
     order_id: orderId,
     method: paymentMethod,
@@ -1052,10 +1166,7 @@ export async function createOrder(
     throw new Error(`Failed to create payment: ${payErr.message}`);
   }
 
-  // ── Step F: Construct canonical order response ─────────────────────────────
-  // For authenticated customers, we can retrieve the persisted order via token-scoped client.
-  // For guests (or if the lookup fails under anonymous RLS), return the synthesized Order object
-  // using the exact known values from the successful insert operations.
+  // ── Step G: Construct canonical order response ─────────────────────────────
   if (input.authUserId && client) {
     try {
       const created = await getOrderById(orderId, client);
@@ -1078,11 +1189,14 @@ export async function createOrder(
       phone: customerPhone,
       ...(input.customer?.table ? { table: input.customer.table } : {}),
       ...(input.customer?.address ? { address: input.customer.address } : {}),
+      latitude: deliveryLatitude,
+      longitude: deliveryLongitude,
     },
     items,
     subtotal,
     discount,
     delivery,
+    distanceKm: deliveryDistanceKm,
     total,
   };
 }
@@ -1169,6 +1283,9 @@ export async function getCustomers(client: any = supabase): Promise<RawCustomerR
           status,
           table_number,
           delivery_address,
+          delivery_latitude,
+          delivery_longitude,
+          delivery_distance_km,
           subtotal,
           discount_amount,
           delivery_fee,
@@ -1434,6 +1551,27 @@ export async function getPromotions(): Promise<Promotion[]> {
 }
 
 export async function updatePromotions(promotions: Promotion[]): Promise<Promotion[]> {
+  try {
+    for (const promo of promotions) {
+      if (promo.id) {
+        await (supabase.from("promotions" as any) as any)
+          .update({
+            name: promo.name,
+            description: promo.description,
+            discount_type: promo.discountType,
+            discount_value: promo.discountValue,
+            start_date: promo.startDate,
+            end_date: promo.endDate,
+            status: promo.status || "active",
+            min_order_amount: promo.minOrderAmount || null,
+          })
+          .eq("id", promo.id);
+      }
+    }
+  } catch (err) {
+    console.warn("[db] Failed to update promotions in Supabase:", err);
+  }
+
   const db = await readDb();
   db.promotions = promotions;
   await writeDb(db);
@@ -1492,33 +1630,24 @@ export async function deletePromotion(id: string): Promise<boolean> {
 export async function getSettings(): Promise<NebaSettings> {
   try {
     const { data, error } = await (supabase.from("store_settings" as any) as any)
-      .select("id, cafe_name, phone, email, address, opening_hours, delivery_fee, updated_at")
+      .select(
+        "id, cafe_name, phone, email, address, opening_hours, delivery_fee, cafe_latitude, cafe_longitude, price_per_km, min_delivery_fee, max_delivery_distance_km, delivery_enabled, rounding_rule, updated_at",
+      )
       .eq("id", 1)
       .maybeSingle();
 
     if (!error && data) {
-      const parsedFee =
-        data.delivery_fee !== undefined && data.delivery_fee !== null
-          ? Number(data.delivery_fee)
-          : DEFAULT_SETTINGS.deliveryFee;
-
-      return {
-        cafeName: data.cafe_name || DEFAULT_SETTINGS.cafeName,
-        phone: data.phone || DEFAULT_SETTINGS.phone,
-        email: data.email || DEFAULT_SETTINGS.email,
-        address: data.address || DEFAULT_SETTINGS.address,
-        openingHours: data.opening_hours || DEFAULT_SETTINGS.openingHours,
-        deliveryFee: !isNaN(parsedFee) && parsedFee >= 0 ? parsedFee : DEFAULT_SETTINGS.deliveryFee,
-        theme: "light",
-        showToasts: true,
-      };
+      return normalizeStoreSettings(data);
+    }
+    if (error) {
+      console.warn("[db] Failed to fetch store settings from Supabase:", error.message);
     }
   } catch (err) {
     console.warn("[db] Failed to fetch store settings from Supabase:", err);
   }
 
   const local = await readDb();
-  return local.settings;
+  return normalizeStoreSettings(local.settings as any);
 }
 
 export async function updateSettings(updates: Partial<NebaSettings>): Promise<NebaSettings> {
@@ -1533,6 +1662,34 @@ export async function updateSettings(updates: Partial<NebaSettings>): Promise<Ne
     if (updates.openingHours !== undefined) payload["opening_hours"] = updates.openingHours.trim();
     if (updates.deliveryFee !== undefined) payload["delivery_fee"] = Number(updates.deliveryFee);
 
+    if (updates.cafeLatitude !== undefined) {
+      payload["cafe_latitude"] =
+        updates.cafeLatitude === null || updates.cafeLatitude === undefined
+          ? null
+          : Number(updates.cafeLatitude);
+    }
+    if (updates.cafeLongitude !== undefined) {
+      payload["cafe_longitude"] =
+        updates.cafeLongitude === null || updates.cafeLongitude === undefined
+          ? null
+          : Number(updates.cafeLongitude);
+    }
+    if (updates.pricePerKm !== undefined) {
+      payload["price_per_km"] = Number(updates.pricePerKm);
+    }
+    if (updates.minDeliveryFee !== undefined) {
+      payload["min_delivery_fee"] = Number(updates.minDeliveryFee);
+    }
+    if (updates.maxDeliveryDistanceKm !== undefined) {
+      payload["max_delivery_distance_km"] = Number(updates.maxDeliveryDistanceKm);
+    }
+    if (updates.deliveryEnabled !== undefined) {
+      payload["delivery_enabled"] = Boolean(updates.deliveryEnabled);
+    }
+    if (updates.roundingRule !== undefined) {
+      payload["rounding_rule"] = updates.roundingRule;
+    }
+
     const { data, error } = await (supabase.from("store_settings" as any) as any)
       .update(payload)
       .eq("id", 1)
@@ -1541,6 +1698,9 @@ export async function updateSettings(updates: Partial<NebaSettings>): Promise<Ne
 
     if (!error && data) {
       return getSettings();
+    }
+    if (error) {
+      console.warn("[db] Failed to update store settings in Supabase:", error.message);
     }
   } catch (err) {
     console.warn("[db] Failed to update store settings in Supabase:", err);

@@ -892,11 +892,44 @@ function AdminOrdersPage() {
                   )}
 
                   {selectedOrder.method === "delivery" && (
-                    <div className="col-span-2">
-                      <dt className="text-muted-foreground">Delivery Destination</dt>
-                      <dd className="font-medium text-foreground mt-0.5 flex items-start gap-1">
-                        <MapPin className="size-3.5 text-primary shrink-0 mt-0.5" />
-                        <span>{selectedOrder.customer.address || "No address specified"}</span>
+                    <div className="col-span-2 space-y-1">
+                      <dt className="text-muted-foreground">Delivery Destination & Distance</dt>
+                      <dd className="font-medium text-foreground mt-0.5 flex items-start justify-between gap-2">
+                        <div className="flex items-start gap-1.5">
+                          <MapPin className="size-3.5 text-primary shrink-0 mt-0.5" />
+                          <div>
+                            <p>{selectedOrder.customer.address || "No address specified"}</p>
+                            {selectedOrder.distanceKm !== null &&
+                              selectedOrder.distanceKm !== undefined && (
+                                <p className="text-[11px] text-muted-foreground mt-0.5">
+                                  Distance:{" "}
+                                  <strong className="text-foreground">
+                                    {selectedOrder.distanceKm.toFixed(1)} KM
+                                  </strong>
+                                  {" • "}
+                                  Fee:{" "}
+                                  <strong className="text-foreground">
+                                    {formatETB(selectedOrder.delivery)}
+                                  </strong>
+                                </p>
+                              )}
+                          </div>
+                        </div>
+
+                        {selectedOrder.customer.latitude !== null &&
+                          selectedOrder.customer.latitude !== undefined &&
+                          selectedOrder.customer.longitude !== null &&
+                          selectedOrder.customer.longitude !== undefined && (
+                            <a
+                              href={`https://www.google.com/maps/search/?api=1&query=${selectedOrder.customer.latitude},${selectedOrder.customer.longitude}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 text-[11px] font-semibold text-primary hover:underline shrink-0 bg-primary/10 px-2 py-1 rounded-md"
+                            >
+                              <ExternalLink className="size-3" />
+                              <span>View Map</span>
+                            </a>
+                          )}
                       </dd>
                     </div>
                   )}
@@ -936,7 +969,12 @@ function AdminOrdersPage() {
                   </div>
                   {selectedOrder.delivery > 0 && (
                     <div className="flex justify-between text-muted-foreground">
-                      <dt>Delivery Fee</dt>
+                      <dt>
+                        Delivery Fee
+                        {selectedOrder.distanceKm !== null && selectedOrder.distanceKm !== undefined
+                          ? ` (${selectedOrder.distanceKm.toFixed(1)} KM)`
+                          : ""}
+                      </dt>
                       <dd>{formatETB(selectedOrder.delivery)}</dd>
                     </div>
                   )}

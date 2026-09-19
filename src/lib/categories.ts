@@ -24,8 +24,8 @@ function generateUUID(): string {
     typeof globalThis !== "undefined" && globalThis.crypto
       ? globalThis.crypto
       : typeof crypto !== "undefined"
-      ? crypto
-      : undefined;
+        ? crypto
+        : undefined;
 
   if (cryptoObj && typeof cryptoObj.randomUUID === "function") {
     return cryptoObj.randomUUID();
@@ -39,9 +39,7 @@ function generateUUID(): string {
     bytes[6] = ((bytes[6] ?? 0) & 0x0f) | 0x40; // 4-bit version 4 (0100)
     bytes[8] = ((bytes[8] ?? 0) & 0x3f) | 0x80; // 2-bit variant 1 (10)
 
-    const hex = Array.from(bytes, (byte) =>
-      byte.toString(16).padStart(2, "0")
-    ).join("");
+    const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 
     return [
       hex.slice(0, 8),
@@ -96,7 +94,8 @@ export async function fetchAdminCategories(): Promise<{
 }> {
   try {
     const { data, error } = await (supabase.from("categories" as any) as any)
-      .select(`
+      .select(
+        `
         id,
         slug,
         name,
@@ -104,7 +103,8 @@ export async function fetchAdminCategories(): Promise<{
         is_active,
         created_at,
         products (count)
-      `)
+      `,
+      )
       .order("name", { ascending: true });
 
     if (error) {
@@ -126,9 +126,7 @@ export async function fetchAdminCategories(): Promise<{
  * Generates an application UUID (since categories.id has no DB default)
  * and generates a unique slug.
  */
-export async function createAdminCategory(
-  input: CreateCategoryInput
-): Promise<{
+export async function createAdminCategory(input: CreateCategoryInput): Promise<{
   data: AdminCategory | null;
   error: Error | null;
 }> {
@@ -157,14 +155,16 @@ export async function createAdminCategory(
 
     const { data, error } = await (supabase.from("categories" as any) as any)
       .insert(newRecord)
-      .select(`
+      .select(
+        `
         id,
         slug,
         name,
         tagline,
         is_active,
         created_at
-      `)
+      `,
+      )
       .single();
 
     if (error) {
@@ -204,7 +204,7 @@ export async function createAdminCategory(
  */
 export async function toggleAdminCategoryActive(
   id: string,
-  isActive: boolean
+  isActive: boolean,
 ): Promise<{ success: boolean; error: Error | null }> {
   try {
     const { error } = await (supabase.from("categories" as any) as any)
@@ -221,8 +221,7 @@ export async function toggleAdminCategoryActive(
   } catch (err: any) {
     return {
       success: false,
-      error:
-        err instanceof Error ? err : new Error("Failed to update category status"),
+      error: err instanceof Error ? err : new Error("Failed to update category status"),
     };
   }
 }

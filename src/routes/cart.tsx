@@ -61,9 +61,13 @@ function CartPage() {
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <h2 className="font-display text-lg font-semibold">{product.name}</h2>
-                      <p className="text-sm text-muted-foreground">{formatETB(product.price)} each</p>
+                      <p className="text-sm text-muted-foreground">
+                        {formatETB(product.price)} each
+                      </p>
                     </div>
-                    <span className="font-semibold">{formatETB(product.price * line.quantity)}</span>
+                    <span className="font-semibold">
+                      {formatETB(product.price * line.quantity)}
+                    </span>
                   </div>
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-1 rounded-full border border-border p-1">

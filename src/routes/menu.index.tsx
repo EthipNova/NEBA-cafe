@@ -19,7 +19,10 @@ export const Route = createFileRoute("/menu/")({
           "Browse the full NEBA Café menu: burgers, pizza, chips & sides and soft drinks with live availability and prices in ETB.",
       },
       { property: "og:title", content: "Menu — NEBA Café" },
-      { property: "og:description", content: "Burgers, pizza, sides and drinks, freshly prepared." },
+      {
+        property: "og:description",
+        content: "Burgers, pizza, sides and drinks, freshly prepared.",
+      },
     ],
   }),
   component: MenuIndexPage,

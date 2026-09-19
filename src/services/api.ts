@@ -23,7 +23,7 @@ import type {
   PromotionStatus,
   PromotionProductItem,
 } from "@/lib/promotions";
-import { DEFAULT_SETTINGS, type NebaSettings } from "@/lib/settings";
+import { DEFAULT_SETTINGS, normalizeStoreSettings, type NebaSettings } from "@/lib/settings";
 import { type AboutContent, DEFAULT_ABOUT_CONTENT, normalizeAboutContent } from "@/lib/content";
 import { supabase } from "@/lib/supabase";
 import type { ContactMessage, CreateContactMessageInput } from "@/lib/contact";
@@ -51,11 +51,22 @@ function getBaseUrl(): string {
     return "";
   }
   const proc = typeof process !== "undefined" ? process.env : undefined;
-  return (
+  const configuredAppUrl =
     (import.meta.env["VITE_APP_URL"] as string | undefined) ||
-    (proc ? proc["VITE_APP_URL"] : undefined) ||
-    "http://localhost:8080"
-  );
+    (proc ? proc["VITE_APP_URL"] : undefined);
+
+  if (configuredAppUrl && configuredAppUrl.trim()) {
+    return configuredAppUrl.trim().replace(/\/+$/, "");
+  }
+
+  // On Vercel, VERCEL_URL is automatically populated with the deployment domain (e.g. neba-cafe.vercel.app)
+  if (proc?.["VERCEL_URL"]) {
+    const host = proc["VERCEL_URL"].trim().replace(/\/+$/, "");
+    return host.startsWith("http://") || host.startsWith("https://") ? host : `https://${host}`;
+  }
+
+  // Development-only fallback to local dev server
+  return "http://localhost:8080";
 }
 
 /**
@@ -70,6 +81,19 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
     headers.set("Content-Type", "application/json");
   }
   headers.set("Accept", "application/json");
+
+  // Automatically attach active session Bearer token in browser when not explicitly specified
+  if (!headers.has("Authorization") && typeof window !== "undefined") {
+    try {
+      const { data } = await supabase.auth.getSession();
+      const token = data?.session?.access_token;
+      if (token) {
+        headers.set("Authorization", `Bearer ${token}`);
+      }
+    } catch {
+      /* ignore */
+    }
+  }
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 12000);
@@ -89,9 +113,14 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
         errorData = await response.text();
       }
       const errorMessage =
-        (typeof errorData === "object" && errorData !== null && "error" in errorData
-          ? String((errorData as { error: unknown }).error)
-          : null) || `Request failed with status ${response.status} (${response.statusText})`;
+        (typeof errorData === "object" &&
+        errorData !== null &&
+        "message" in errorData &&
+        (errorData as any).message
+          ? String((errorData as { message: unknown }).message)
+          : typeof errorData === "object" && errorData !== null && "error" in errorData
+            ? String((errorData as { error: unknown }).error)
+            : null) || `Request failed with status ${response.status} (${response.statusText})`;
 
       throw new ApiError(errorMessage, response.status, errorData);
     }
@@ -119,17 +148,17 @@ function getFallbackImage(name: string, categorySlug?: string): string {
   const n = name.toLowerCase();
   const cat = (categorySlug || "").toLowerCase();
 
-  if (n.includes("pizza") || cat.includes("pizza")) return "/src/assets/margherita.jpg";
-  if (n.includes("chicken") && n.includes("burger")) return "/src/assets/chicken-burger.jpg";
-  if (n.includes("cheese") && n.includes("burger")) return "/src/assets/cheese-burger.jpg";
-  if (n.includes("burger") || cat.includes("burger")) return "/src/assets/classic-burger.jpg";
+  if (n.includes("pizza") || cat.includes("pizza")) return "/images/margherita.jpg";
+  if (n.includes("chicken") && n.includes("burger")) return "/images/chicken-burger.jpg";
+  if (n.includes("cheese") && n.includes("burger")) return "/images/cheese-burger.jpg";
+  if (n.includes("burger") || cat.includes("burger")) return "/images/classic-burger.jpg";
   if (n.includes("fries") || n.includes("chip") || cat.includes("side"))
-    return "/src/assets/fries.jpg";
-  if (n.includes("sprite")) return "/src/assets/sprite.jpg";
-  if (n.includes("water")) return "/src/assets/water.jpg";
+    return "/images/fries.jpg";
+  if (n.includes("sprite")) return "/images/sprite.jpg";
+  if (n.includes("water")) return "/images/water.jpg";
   if (n.includes("drink") || n.includes("cola") || cat.includes("drink"))
-    return "/src/assets/cola.jpg";
-  return "/src/assets/hero.jpg";
+    return "/images/cola.jpg";
+  return "/images/hero.jpg";
 }
 
 /* ==========================================================================
@@ -561,32 +590,20 @@ export async function fetchSettings(): Promise<NebaSettings> {
 
   try {
     const { data, error } = await (supabase.from("store_settings" as any) as any)
-      .select("id, cafe_name, phone, email, address, opening_hours, delivery_fee, updated_at")
+      .select(
+        "id, cafe_name, phone, email, address, opening_hours, delivery_fee, cafe_latitude, cafe_longitude, price_per_km, min_delivery_fee, max_delivery_distance_km, delivery_enabled, rounding_rule, updated_at",
+      )
       .eq("id", 1)
       .maybeSingle();
 
     if (!error && data) {
-      const parsedFee =
-        data.delivery_fee !== undefined && data.delivery_fee !== null
-          ? Number(data.delivery_fee)
-          : DEFAULT_SETTINGS.deliveryFee;
-
-      return {
-        cafeName: data.cafe_name || DEFAULT_SETTINGS.cafeName,
-        phone: data.phone || DEFAULT_SETTINGS.phone,
-        email: data.email || DEFAULT_SETTINGS.email,
-        address: data.address || DEFAULT_SETTINGS.address,
-        openingHours: data.opening_hours || DEFAULT_SETTINGS.openingHours,
-        deliveryFee: !isNaN(parsedFee) && parsedFee >= 0 ? parsedFee : DEFAULT_SETTINGS.deliveryFee,
-        theme: "light",
-        showToasts: true,
-      };
+      return normalizeStoreSettings(data);
     }
   } catch (err) {
     console.warn("fetchSettings Supabase fallback failed:", err);
   }
 
-  return { ...DEFAULT_SETTINGS };
+  return normalizeStoreSettings();
 }
 
 /**
@@ -628,11 +645,23 @@ function normalizeServiceOrder(raw: any): Order {
       phone: raw.customer_phone || "",
       table: raw.table_number || undefined,
       address: raw.delivery_address || undefined,
+      latitude:
+        raw.delivery_latitude !== null && raw.delivery_latitude !== undefined
+          ? Number(raw.delivery_latitude)
+          : null,
+      longitude:
+        raw.delivery_longitude !== null && raw.delivery_longitude !== undefined
+          ? Number(raw.delivery_longitude)
+          : null,
     },
     items,
     subtotal: Number(raw.subtotal) || 0,
     discount: Number(raw.discount_amount) || 0,
     delivery: Number(raw.delivery_fee) || 0,
+    distanceKm:
+      raw.delivery_distance_km !== null && raw.delivery_distance_km !== undefined
+        ? Number(raw.delivery_distance_km)
+        : null,
     total: Number(raw.total_amount) || 0,
   };
 }
@@ -720,6 +749,9 @@ export async function fetchOrderById(id: string): Promise<Order> {
         status,
         table_number,
         delivery_address,
+        delivery_latitude,
+        delivery_longitude,
+        delivery_distance_km,
         subtotal,
         discount_amount,
         delivery_fee,

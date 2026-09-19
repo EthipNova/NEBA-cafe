@@ -14,11 +14,19 @@ export type Order = {
   status: OrderStatus;
   paymentStatus: "paid" | "pending" | "failed";
   paymentMethod: string;
-  customer: { name: string; phone: string; table?: string; address?: string };
+  customer: {
+    name: string;
+    phone: string;
+    table?: string;
+    address?: string;
+    latitude?: number | null;
+    longitude?: number | null;
+  };
   items: OrderItem[];
   subtotal: number;
   discount: number;
   delivery: number;
+  distanceKm?: number | null;
   total: number;
 };
 

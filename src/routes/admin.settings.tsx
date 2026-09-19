@@ -53,6 +53,14 @@ import {
   type NebaSettings,
   type ThemePreference,
 } from "@/lib/settings";
+import type { DeliveryRoundingRule } from "@/lib/distance";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 export const Route = createFileRoute("/admin/settings")({
   head: () => ({
@@ -149,6 +157,13 @@ function AdminSettings() {
     form.address !== savedSettings.address ||
     form.openingHours !== savedSettings.openingHours ||
     form.deliveryFee !== savedSettings.deliveryFee ||
+    form.deliveryEnabled !== savedSettings.deliveryEnabled ||
+    form.pricePerKm !== savedSettings.pricePerKm ||
+    form.minDeliveryFee !== savedSettings.minDeliveryFee ||
+    form.maxDeliveryDistanceKm !== savedSettings.maxDeliveryDistanceKm ||
+    form.roundingRule !== savedSettings.roundingRule ||
+    form.cafeLatitude !== savedSettings.cafeLatitude ||
+    form.cafeLongitude !== savedSettings.cafeLongitude ||
     form.theme !== savedSettings.theme ||
     form.showToasts !== savedSettings.showToasts;
 
@@ -171,8 +186,42 @@ function AdminSettings() {
       return;
     }
 
-    if (form.deliveryFee < 0) {
-      toast.error("Delivery fee cannot be negative");
+    if (form.pricePerKm < 0 || isNaN(form.pricePerKm)) {
+      toast.error("Price per KM cannot be negative");
+      return;
+    }
+
+    if (form.minDeliveryFee < 0 || isNaN(form.minDeliveryFee)) {
+      toast.error("Minimum delivery fee cannot be negative");
+      return;
+    }
+
+    if (form.maxDeliveryDistanceKm <= 0 || isNaN(form.maxDeliveryDistanceKm)) {
+      toast.error("Maximum delivery distance must be greater than 0");
+      return;
+    }
+
+    if (
+      form.cafeLatitude !== null &&
+      form.cafeLatitude !== undefined &&
+      (isNaN(form.cafeLatitude) || form.cafeLatitude < -90 || form.cafeLatitude > 90)
+    ) {
+      toast.error("Café latitude must be between -90 and 90 degrees");
+      return;
+    }
+
+    if (
+      form.cafeLongitude !== null &&
+      form.cafeLongitude !== undefined &&
+      (isNaN(form.cafeLongitude) || form.cafeLongitude < -180 || form.cafeLongitude > 180)
+    ) {
+      toast.error("Café longitude must be between -180 and 180 degrees");
+      return;
+    }
+
+    const validRules: DeliveryRoundingRule[] = ["none", "nearest_1", "nearest_5", "ceil"];
+    if (!validRules.includes(form.roundingRule)) {
+      toast.error("Invalid rounding rule selected");
       return;
     }
 
@@ -305,15 +354,12 @@ function AdminSettings() {
             <AlertTriangle className="size-6" aria-hidden />
           </div>
           <div className="space-y-1">
-            <h3 className="text-base font-semibold text-foreground">Failed to load store settings</h3>
+            <h3 className="text-base font-semibold text-foreground">
+              Failed to load store settings
+            </h3>
             <p className="text-xs text-muted-foreground max-w-md mx-auto">{error}</p>
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => void loadData()}
-            className="gap-1.5"
-          >
+          <Button variant="outline" size="sm" onClick={() => void loadData()} className="gap-1.5">
             <RotateCcw className="size-3.5" aria-hidden />
             <span>Retry connection</span>
           </Button>
@@ -504,7 +550,9 @@ function AdminSettings() {
                   >
                     <div className="flex items-center justify-between w-full">
                       <Moon className="size-5 text-primary" aria-hidden />
-                      {form.theme === "dark" && <Check className="size-4 text-primary" aria-hidden />}
+                      {form.theme === "dark" && (
+                        <Check className="size-4 text-primary" aria-hidden />
+                      )}
                     </div>
                     <span className="font-medium text-sm mt-3 text-foreground">Charcoal Dark</span>
                     <span className="text-xs text-muted-foreground mt-1">
@@ -557,18 +605,25 @@ function AdminSettings() {
             </div>
           </section>
 
-          {/* 4. SECTION: ORDERING CHANNELS & PRICING RULES */}
-          <section aria-labelledby="ordering-rules-heading" className="surface-card p-6 space-y-5">
+          {/* 4. SECTION: DELIVERY & FULFILLMENT */}
+          <section
+            aria-labelledby="delivery-fulfillment-heading"
+            className="surface-card p-6 space-y-6"
+          >
             <div className="flex items-start justify-between gap-4 border-b border-border/50 pb-4">
               <div>
                 <div className="flex items-center gap-2">
-                  <ShoppingBag className="size-5 text-primary" aria-hidden />
-                  <h2 id="ordering-rules-heading" className="font-display text-xl font-semibold">
-                    Ordering Channels & Pricing Rules
+                  <Truck className="size-5 text-primary" aria-hidden />
+                  <h2
+                    id="delivery-fulfillment-heading"
+                    className="font-display text-xl font-semibold"
+                  >
+                    Delivery & Fulfillment
                   </h2>
                 </div>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Active fulfillment channels and standard pricing parameters enforced across the café platform.
+                  Configure distance-based delivery pricing, operating radius, rounding rules, and
+                  café coordinates.
                 </p>
               </div>
               <Badge variant="outline" className="text-xs">
@@ -576,31 +631,110 @@ function AdminSettings() {
               </Badge>
             </div>
 
+            {/* Warning banner when delivery is enabled but café GPS coordinates are unconfigured */}
+            {form.deliveryEnabled &&
+              (form.cafeLatitude === null || form.cafeLongitude === null) && (
+                <div
+                  role="alert"
+                  className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 text-xs text-amber-700 dark:text-amber-300 flex items-start gap-3"
+                >
+                  <AlertTriangle className="size-5 shrink-0 mt-0.5 text-amber-500" aria-hidden />
+                  <div className="space-y-1">
+                    <p className="font-semibold text-sm text-amber-800 dark:text-amber-200">
+                      Café Location Configuration Required
+                    </p>
+                    <p>
+                      Delivery is enabled, but the café location has not been configured. Customers
+                      cannot place delivery orders until the café coordinates are set.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+            {/* Delivery Enable/Disable Toggle */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-xl border border-border bg-card/60 p-4">
+              <div className="space-y-0.5">
+                <Label
+                  htmlFor="setting-delivery-enabled"
+                  className="text-sm font-semibold cursor-pointer"
+                >
+                  Delivery Orders Enabled
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  When enabled, customers can choose delivery during checkout (requires valid
+                  customer and café coordinates).
+                </p>
+              </div>
+              <Switch
+                id="setting-delivery-enabled"
+                checked={form.deliveryEnabled}
+                onCheckedChange={(checked) => handleFieldChange("deliveryEnabled", checked)}
+                aria-label="Toggle delivery orders"
+                disabled={isSaving}
+              />
+            </div>
+
+            {/* Pricing and Radius Parameters */}
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              {/* Delivery Fee - Editable Numeric Field */}
+              {/* Price Per KM */}
               <div className="rounded-xl border border-border bg-card/60 p-4 space-y-2">
                 <div className="flex items-center justify-between">
                   <Label
-                    htmlFor="setting-delivery-fee"
+                    htmlFor="setting-price-per-km"
                     className="text-xs font-semibold uppercase text-muted-foreground cursor-pointer"
                   >
-                    Delivery Fee
+                    Price per KM
                   </Label>
                   <Truck className="size-4 text-primary" aria-hidden />
                 </div>
                 <div className="relative flex items-center">
                   <Input
-                    id="setting-delivery-fee"
+                    id="setting-price-per-km"
                     type="number"
                     min={0}
                     step="any"
-                    value={isNaN(form.deliveryFee) ? "" : form.deliveryFee}
+                    value={isNaN(form.pricePerKm) ? "" : form.pricePerKm}
                     onChange={(e) => {
                       const val = parseFloat(e.target.value);
-                      handleFieldChange("deliveryFee", isNaN(val) ? 0 : Math.max(0, val));
+                      handleFieldChange("pricePerKm", isNaN(val) ? 0 : Math.max(0, val));
+                    }}
+                    className="pr-16 font-display text-lg font-bold h-9"
+                    aria-label="Price per kilometer in ETB"
+                    disabled={isSaving}
+                  />
+                  <span className="absolute right-3 text-xs font-semibold text-muted-foreground pointer-events-none">
+                    ETB/KM
+                  </span>
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  Charged per straight-line kilometer
+                </p>
+              </div>
+
+              {/* Minimum Delivery Fee */}
+              <div className="rounded-xl border border-border bg-card/60 p-4 space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label
+                    htmlFor="setting-min-delivery-fee"
+                    className="text-xs font-semibold uppercase text-muted-foreground cursor-pointer"
+                  >
+                    Min Delivery Fee
+                  </Label>
+                  <ShoppingBag className="size-4 text-primary" aria-hidden />
+                </div>
+                <div className="relative flex items-center">
+                  <Input
+                    id="setting-min-delivery-fee"
+                    type="number"
+                    min={0}
+                    step="any"
+                    value={isNaN(form.minDeliveryFee) ? "" : form.minDeliveryFee}
+                    onChange={(e) => {
+                      const val = parseFloat(e.target.value);
+                      handleFieldChange("minDeliveryFee", isNaN(val) ? 0 : Math.max(0, val));
                     }}
                     className="pr-12 font-display text-lg font-bold h-9"
-                    aria-label="Standard flat delivery fee in ETB"
+                    aria-label="Minimum delivery fee in ETB"
                     disabled={isSaving}
                   />
                   <span className="absolute right-3 text-xs font-semibold text-muted-foreground pointer-events-none">
@@ -608,57 +742,184 @@ function AdminSettings() {
                   </span>
                 </div>
                 <p className="text-[11px] text-muted-foreground">
-                  Saved directly to store_settings
+                  Base floor charge for any delivery
                 </p>
               </div>
 
-              {/* Active Channels */}
-              <div className="rounded-xl border border-border bg-card/60 p-4 space-y-1">
+              {/* Maximum Delivery Distance */}
+              <div className="rounded-xl border border-border bg-card/60 p-4 space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold uppercase text-muted-foreground">
-                    Fulfillment
-                  </span>
-                  <Utensils className="size-4 text-primary" aria-hidden />
+                  <Label
+                    htmlFor="setting-max-distance"
+                    className="text-xs font-semibold uppercase text-muted-foreground cursor-pointer"
+                  >
+                    Max Distance
+                  </Label>
+                  <MapPin className="size-4 text-primary" aria-hidden />
                 </div>
-                <p className="font-display text-lg font-bold text-foreground">3 Channels</p>
+                <div className="relative flex items-center">
+                  <Input
+                    id="setting-max-distance"
+                    type="number"
+                    min={0.1}
+                    step="any"
+                    value={isNaN(form.maxDeliveryDistanceKm) ? "" : form.maxDeliveryDistanceKm}
+                    onChange={(e) => {
+                      const val = parseFloat(e.target.value);
+                      handleFieldChange(
+                        "maxDeliveryDistanceKm",
+                        isNaN(val) ? 1 : Math.max(0.1, val),
+                      );
+                    }}
+                    className="pr-12 font-display text-lg font-bold h-9"
+                    aria-label="Maximum delivery distance in kilometers"
+                    disabled={isSaving}
+                  />
+                  <span className="absolute right-3 text-xs font-semibold text-muted-foreground pointer-events-none">
+                    KM
+                  </span>
+                </div>
                 <p className="text-[11px] text-muted-foreground">
-                  Dine-in, Takeaway, and Delivery enabled
+                  Orders beyond this radius are rejected
                 </p>
               </div>
 
-              {/* Currency */}
-              <div className="rounded-xl border border-border bg-card/60 p-4 space-y-1">
+              {/* Rounding Rule */}
+              <div className="rounded-xl border border-border bg-card/60 p-4 space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold uppercase text-muted-foreground">
-                    Currency
-                  </span>
-                  <Globe className="size-4 text-primary" aria-hidden />
+                  <Label
+                    htmlFor="setting-rounding-rule"
+                    className="text-xs font-semibold uppercase text-muted-foreground cursor-pointer"
+                  >
+                    Rounding Rule
+                  </Label>
+                  <CheckCircle2 className="size-4 text-primary" aria-hidden />
                 </div>
-                <p className="font-display text-2xl font-bold text-foreground">ETB</p>
+                <Select
+                  value={form.roundingRule}
+                  onValueChange={(val) =>
+                    handleFieldChange("roundingRule", val as DeliveryRoundingRule)
+                  }
+                  disabled={isSaving}
+                >
+                  <SelectTrigger id="setting-rounding-rule" className="h-9 font-medium text-xs">
+                    <SelectValue placeholder="Select rounding rule" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="nearest_5">Nearest 5 ETB (e.g. 50, 55, 60)</SelectItem>
+                    <SelectItem value="nearest_1">Nearest 1 ETB (e.g. 51, 52)</SelectItem>
+                    <SelectItem value="ceil">Round Up / Ceil</SelectItem>
+                    <SelectItem value="none">Exact (No Rounding)</SelectItem>
+                  </SelectContent>
+                </Select>
                 <p className="text-[11px] text-muted-foreground">
-                  Ethiopian Birr with formatted separators
+                  Applied after distance × price calculation
                 </p>
               </div>
+            </div>
 
-              {/* Order Sequence */}
-              <div className="rounded-xl border border-border bg-card/60 p-4 space-y-1">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold uppercase text-muted-foreground">
-                    Order IDs
-                  </span>
-                  <CheckCircle2 className="size-4 text-success" aria-hidden />
+            {/* Café GPS Coordinates */}
+            <div className="rounded-xl border border-border bg-card/60 p-5 space-y-4">
+              <div className="flex items-start justify-between gap-3 border-b border-border/50 pb-3">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <MapPin className="size-4 text-primary" aria-hidden />
+                    <h3 className="font-display text-sm font-semibold text-foreground">
+                      NEBA Café GPS Coordinates (Origin)
+                    </h3>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Confirmed coordinates are strictly required to calculate delivery distance.
+                    Leave empty until the café owner provides exact coordinates.
+                  </p>
                 </div>
-                <p className="font-display text-lg font-bold text-foreground">#1000 – #1999</p>
-                <p className="text-[11px] text-muted-foreground">Sequential client allocation</p>
+                <Badge
+                  variant={
+                    form.cafeLatitude !== null && form.cafeLongitude !== null
+                      ? "secondary"
+                      : "outline"
+                  }
+                  className="text-[11px]"
+                >
+                  {form.cafeLatitude !== null && form.cafeLongitude !== null
+                    ? "Configured"
+                    : "Unconfigured"}
+                </Badge>
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label
+                    htmlFor="setting-cafe-lat"
+                    className="text-xs font-medium text-muted-foreground"
+                  >
+                    Café Latitude (-90 to 90)
+                  </Label>
+                  <Input
+                    id="setting-cafe-lat"
+                    type="number"
+                    step="any"
+                    placeholder="e.g. 7.0581234"
+                    value={
+                      form.cafeLatitude === null || form.cafeLatitude === undefined
+                        ? ""
+                        : form.cafeLatitude
+                    }
+                    onChange={(e) => {
+                      const str = e.target.value.trim();
+                      if (str === "") {
+                        handleFieldChange("cafeLatitude", null);
+                      } else {
+                        const val = parseFloat(str);
+                        handleFieldChange("cafeLatitude", isNaN(val) ? null : val);
+                      }
+                    }}
+                    className="font-mono text-sm h-9"
+                    disabled={isSaving}
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label
+                    htmlFor="setting-cafe-lng"
+                    className="text-xs font-medium text-muted-foreground"
+                  >
+                    Café Longitude (-180 to 180)
+                  </Label>
+                  <Input
+                    id="setting-cafe-lng"
+                    type="number"
+                    step="any"
+                    placeholder="e.g. 38.4731234"
+                    value={
+                      form.cafeLongitude === null || form.cafeLongitude === undefined
+                        ? ""
+                        : form.cafeLongitude
+                    }
+                    onChange={(e) => {
+                      const str = e.target.value.trim();
+                      if (str === "") {
+                        handleFieldChange("cafeLongitude", null);
+                      } else {
+                        const val = parseFloat(str);
+                        handleFieldChange("cafeLongitude", isNaN(val) ? null : val);
+                      }
+                    }}
+                    className="font-mono text-sm h-9"
+                    disabled={isSaving}
+                  />
+                </div>
               </div>
             </div>
 
             <div className="rounded-lg border border-border/60 bg-muted/20 p-3 text-xs text-muted-foreground flex items-start gap-2">
               <Info className="size-4 shrink-0 mt-0.5 text-primary" aria-hidden />
               <span>
-                <strong>Note on pricing authority:</strong> Delivery fee is now stored in{" "}
-                <code>store_settings.delivery_fee</code> on Supabase. Dynamic distance calculations,
-                kitchen order throttling, and automated promotions engine are managed server-side.
+                <strong>Distance Formula:</strong>{" "}
+                <code>delivery_fee = max(min_delivery_fee, distance_km × price_per_km)</code>{" "}
+                rounded by the configured rule. Orders exceeding {form.maxDeliveryDistanceKm || 15}{" "}
+                KM are rejected. The legacy flat rate field remains preserved in the database for
+                historical orders.
               </span>
             </div>
           </section>
@@ -685,7 +946,9 @@ function AdminSettings() {
             <div className="grid gap-3 sm:grid-cols-2 text-sm">
               <div className="flex items-center justify-between rounded-lg border border-border/60 bg-card/40 p-3">
                 <span className="text-xs text-muted-foreground">Application</span>
-                <span className="font-medium text-foreground text-xs">NEBA Café Ordering System</span>
+                <span className="font-medium text-foreground text-xs">
+                  NEBA Café Ordering System
+                </span>
               </div>
 
               <div className="flex items-center justify-between rounded-lg border border-border/60 bg-card/40 p-3">
@@ -862,11 +1125,11 @@ function AdminSettings() {
           <Info className="size-4 shrink-0 text-muted-foreground" aria-hidden />
           <span>
             Restoring defaults updates <code>store_settings</code> with factory defaults and resets{" "}
-            <code>neba.settings.v1</code>. It does not modify or remove existing orders or inventory.
+            <code>neba.settings.v1</code>. It does not modify or remove existing orders or
+            inventory.
           </span>
         </div>
       </section>
     </div>
   );
 }
-

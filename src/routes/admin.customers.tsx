@@ -470,7 +470,9 @@ function AdminCustomers() {
             <AlertCircle className="size-6" aria-hidden />
           </div>
           <div className="space-y-1">
-            <h3 className="text-base font-semibold text-foreground">Failed to load customer profiles</h3>
+            <h3 className="text-base font-semibold text-foreground">
+              Failed to load customer profiles
+            </h3>
             <p className="text-xs text-muted-foreground max-w-md mx-auto">{error}</p>
           </div>
           <Button

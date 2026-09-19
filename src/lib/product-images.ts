@@ -18,8 +18,8 @@ function generateUUID(): string {
     typeof globalThis !== "undefined" && globalThis.crypto
       ? globalThis.crypto
       : typeof crypto !== "undefined"
-      ? crypto
-      : undefined;
+        ? crypto
+        : undefined;
 
   if (cryptoObj && typeof cryptoObj.randomUUID === "function") {
     return cryptoObj.randomUUID();
@@ -32,9 +32,7 @@ function generateUUID(): string {
     bytes[6] = ((bytes[6] ?? 0) & 0x0f) | 0x40;
     bytes[8] = ((bytes[8] ?? 0) & 0x3f) | 0x80;
 
-    const hex = Array.from(bytes, (byte) =>
-      byte.toString(16).padStart(2, "0")
-    ).join("");
+    const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 
     return [
       hex.slice(0, 8),
@@ -66,9 +64,7 @@ export function validateProductImageFile(file: File): {
     };
   }
 
-  const isAllowedMime = ALLOWED_IMAGE_MIME_TYPES.includes(
-    file.type.toLowerCase() as any
-  );
+  const isAllowedMime = ALLOWED_IMAGE_MIME_TYPES.includes(file.type.toLowerCase() as any);
 
   // Also check file extension as fallback in case MIME type is missing or generic
   const extension = file.name.split(".").pop()?.toLowerCase();
@@ -89,21 +85,16 @@ export function validateProductImageFile(file: File): {
  */
 export async function ensureProductImagesBucket(): Promise<boolean> {
   try {
-    const { data: bucket, error: getErr } = await supabase.storage.getBucket(
-      PRODUCT_IMAGES_BUCKET
-    );
+    const { data: bucket, error: getErr } = await supabase.storage.getBucket(PRODUCT_IMAGES_BUCKET);
     if (bucket && !getErr) {
       return true;
     }
 
-    const { error: createErr } = await supabase.storage.createBucket(
-      PRODUCT_IMAGES_BUCKET,
-      {
-        public: true,
-        fileSizeLimit: MAX_IMAGE_SIZE_BYTES,
-        allowedMimeTypes: ["image/jpeg", "image/png", "image/webp"],
-      }
-    );
+    const { error: createErr } = await supabase.storage.createBucket(PRODUCT_IMAGES_BUCKET, {
+      public: true,
+      fileSizeLimit: MAX_IMAGE_SIZE_BYTES,
+      allowedMimeTypes: ["image/jpeg", "image/png", "image/webp"],
+    });
 
     if (createErr) {
       // Bucket might already exist or need admin session
@@ -139,7 +130,7 @@ export function extractStoragePathFromUrl(url: string): string | null {
  */
 export async function uploadProductImage(
   productId: string,
-  file: File
+  file: File,
 ): Promise<{
   url: string | null;
   path: string | null;
@@ -195,8 +186,7 @@ export async function uploadProductImage(
     return {
       url: null,
       path: null,
-      error:
-        err instanceof Error ? err : new Error("Failed to upload image file."),
+      error: err instanceof Error ? err : new Error("Failed to upload image file."),
     };
   }
 }
@@ -206,25 +196,21 @@ export async function uploadProductImage(
  * Accepts either a full public URL or a storage path.
  */
 export async function deleteProductImageFromStorage(
-  pathOrUrl: string
+  pathOrUrl: string,
 ): Promise<{ success: boolean; error: Error | null }> {
   try {
     if (!pathOrUrl || typeof pathOrUrl !== "string") {
       return { success: true, error: null };
     }
 
-    const path = pathOrUrl.includes("://")
-      ? extractStoragePathFromUrl(pathOrUrl)
-      : pathOrUrl;
+    const path = pathOrUrl.includes("://") ? extractStoragePathFromUrl(pathOrUrl) : pathOrUrl;
 
     // If the image is external (not in our bucket), nothing to delete from Supabase Storage
     if (!path) {
       return { success: true, error: null };
     }
 
-    const { error } = await supabase.storage
-      .from(PRODUCT_IMAGES_BUCKET)
-      .remove([path]);
+    const { error } = await supabase.storage.from(PRODUCT_IMAGES_BUCKET).remove([path]);
 
     if (error) {
       console.warn("Notice deleting storage image:", error.message);
