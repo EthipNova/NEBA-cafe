@@ -59,7 +59,7 @@
       "description": "sidkjgvhuarpi",
       "ingredients": [],
       "price": 750,
-      "image": "/src/assets/classic-burger.jpg",
+      "image": "/images/classic-burger.jpg",
       "available": true,
       "featured": false
     },
@@ -69,15 +69,9 @@
       "slug": "classic-burger",
       "categorySlug": "burgers",
       "description": "Fresh beef patty, vegetables and special sauce.",
-      "ingredients": [
-        "Beef patty",
-        "Lettuce",
-        "Tomato",
-        "Special sauce",
-        "Sesame bun"
-      ],
+      "ingredients": ["Beef patty", "Lettuce", "Tomato", "Special sauce", "Sesame bun"],
       "price": 250,
-      "image": "/src/assets/classic-burger.jpg",
+      "image": "/images/classic-burger.jpg",
       "available": true,
       "featured": true
     },
@@ -87,14 +81,9 @@
       "slug": "cheese-burger",
       "categorySlug": "burgers",
       "description": "Double beef patty layered with melted cheddar cheese.",
-      "ingredients": [
-        "Beef patty",
-        "Cheddar cheese",
-        "Pickles",
-        "House sauce"
-      ],
+      "ingredients": ["Beef patty", "Cheddar cheese", "Pickles", "House sauce"],
       "price": 300,
-      "image": "/src/assets/cheese-burger.jpg",
+      "image": "/images/cheese-burger.jpg",
       "available": true,
       "featured": true
     },
@@ -104,14 +93,9 @@
       "slug": "chicken-burger",
       "categorySlug": "burgers",
       "description": "Crispy chicken fillet with fresh slaw and mild mayo.",
-      "ingredients": [
-        "Chicken fillet",
-        "Cabbage slaw",
-        "Mayo",
-        "Brioche bun"
-      ],
+      "ingredients": ["Chicken fillet", "Cabbage slaw", "Mayo", "Brioche bun"],
       "price": 280,
-      "image": "/src/assets/chicken-burger.jpg",
+      "image": "/images/chicken-burger.jpg",
       "available": false,
       "featured": true
     },
@@ -121,14 +105,9 @@
       "slug": "margherita-pizza",
       "categorySlug": "pizza",
       "description": "Stone-baked dough, tomato sauce, mozzarella and basil.",
-      "ingredients": [
-        "Pizza dough",
-        "Tomato sauce",
-        "Mozzarella",
-        "Fresh basil"
-      ],
+      "ingredients": ["Pizza dough", "Tomato sauce", "Mozzarella", "Fresh basil"],
       "price": 420,
-      "image": "/src/assets/margherita.jpg",
+      "image": "/images/margherita.jpg",
       "available": true,
       "featured": true
     },
@@ -138,14 +117,9 @@
       "slug": "chicken-pizza",
       "categorySlug": "pizza",
       "description": "Grilled chicken, sweet peppers and mozzarella.",
-      "ingredients": [
-        "Pizza dough",
-        "Grilled chicken",
-        "Peppers",
-        "Mozzarella"
-      ],
+      "ingredients": ["Pizza dough", "Grilled chicken", "Peppers", "Mozzarella"],
       "price": 480,
-      "image": "/src/assets/chicken-pizza.jpg",
+      "image": "/images/chicken-pizza.jpg",
       "available": true,
       "featured": true
     },
@@ -155,13 +129,9 @@
       "slug": "french-fries",
       "categorySlug": "sides",
       "description": "Golden, crispy and lightly salted.",
-      "ingredients": [
-        "Potato",
-        "Sunflower oil",
-        "Sea salt"
-      ],
+      "ingredients": ["Potato", "Sunflower oil", "Sea salt"],
       "price": 100,
-      "image": "/src/assets/fries.jpg",
+      "image": "/images/fries.jpg",
       "available": false,
       "featured": true
     },
@@ -173,7 +143,7 @@
       "description": "Chilled 300ml bottle.",
       "ingredients": [],
       "price": 50,
-      "image": "/src/assets/cola.jpg",
+      "image": "/images/cola.jpg",
       "available": true,
       "featured": false
     },
@@ -185,7 +155,7 @@
       "description": "Chilled 300ml bottle.",
       "ingredients": [],
       "price": 50,
-      "image": "/src/assets/sprite.jpg",
+      "image": "/images/sprite.jpg",
       "available": true,
       "featured": false
     },
@@ -197,7 +167,7 @@
       "description": "Still mineral water, 500ml.",
       "ingredients": [],
       "price": 30,
-      "image": "/src/assets/water.jpg",
+      "image": "/images/water.jpg",
       "available": true,
       "featured": false
     },
@@ -207,12 +177,9 @@
       "slug": "ethiopian-yirgacheffe",
       "categorySlug": "coffee",
       "description": "Single-origin pour-over with fragrant floral jasmine notes and vibrant citrus acidity.",
-      "ingredients": [
-        "Yirgacheffe Coffee Beans",
-        "Filtered Water"
-      ],
+      "ingredients": ["Yirgacheffe Coffee Beans", "Filtered Water"],
       "price": 95,
-      "image": "/src/assets/hero.jpg",
+      "image": "/images/hero.jpg",
       "available": true,
       "featured": true
     },
@@ -222,15 +189,9 @@
       "slug": "cardamom-cinnamon-swirl",
       "categorySlug": "pastries",
       "description": "Artisan baked pastry layered with warm cardamom, Ceylon cinnamon and raw cane glaze.",
-      "ingredients": [
-        "Flour",
-        "Butter",
-        "Cardamom",
-        "Cinnamon",
-        "Cane Sugar"
-      ],
+      "ingredients": ["Flour", "Butter", "Cardamom", "Cinnamon", "Cane Sugar"],
       "price": 120,
-      "image": "/src/assets/about.jpg",
+      "image": "/images/about.jpg",
       "available": true,
       "featured": false
     }
@@ -242,10 +203,7 @@
       "description": "fxkghnm",
       "discountType": "percentage",
       "discountValue": 10,
-      "applicableProductIds": [
-        "p-4",
-        "p-5"
-      ],
+      "applicableProductIds": ["p-4", "p-5"],
       "startDate": "2026-09-13",
       "endDate": "2026-09-20",
       "status": "active",
@@ -257,10 +215,7 @@
       "description": "Our double cheddar burger paired with golden fries, for a limited time.",
       "discountType": "percentage",
       "discountValue": 15,
-      "applicableProductIds": [
-        "p-2",
-        "p-6"
-      ],
+      "applicableProductIds": ["p-2", "p-6"],
       "applicableCategorySlug": "burgers",
       "startDate": "2026-01-01",
       "endDate": "2026-12-31",

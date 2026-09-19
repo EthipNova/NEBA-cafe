@@ -62,13 +62,18 @@ import {
   fetchPromotionProductsList,
   formatDiscount,
   formatETB,
+  resolvePromotionTargetType,
   updateAdminPromotion,
   type CreatePromotionInput,
   type DiscountType,
   type Promotion,
   type PromotionProductItem,
   type PromotionStatus,
+  type PromotionTargetType,
 } from "@/lib/promotions";
+import { fetchCategories } from "@/services/api";
+import type { Category } from "@/lib/menu-data";
+import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/admin/promotions")({
   head: () => ({
@@ -127,6 +132,7 @@ type FormErrors = {
   discountValue?: string;
   startDate?: string;
   endDate?: string;
+  category?: string;
   products?: string;
   minOrderAmount?: string;
 };
@@ -157,8 +163,10 @@ function AdminPromotions() {
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [statusMode, setStatusMode] = useState<"auto" | "draft">("auto");
-  const [targetAll, setTargetAll] = useState(true);
+  const [targetType, setTargetType] = useState<PromotionTargetType>("all");
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string>("");
   const [selectedProductIds, setSelectedProductIds] = useState<string[]>([]);
+  const [categoriesList, setCategoriesList] = useState<Category[]>([]);
   const [minOrderAmount, setMinOrderAmount] = useState<string>("");
   const [formErrors, setFormErrors] = useState<FormErrors>({});
 
@@ -166,9 +174,10 @@ function AdminPromotions() {
     setLoading(true);
     setError(null);
     try {
-      const [promosRes, productsRes] = await Promise.all([
+      const [promosRes, productsRes, categoriesRes] = await Promise.all([
         fetchAdminPromotions(),
         fetchPromotionProductsList(),
+        fetchCategories().catch(() => []),
       ]);
 
       if (promosRes.error) {
@@ -181,7 +190,11 @@ function AdminPromotions() {
       if (productsRes.data) {
         setAvailableProducts(productsRes.data);
       }
-    } catch (err: any) {
+
+      if (categoriesRes) {
+        setCategoriesList(categoriesRes);
+      }
+    } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to load promotions data.");
       setPromotions([]);
     } finally {
@@ -200,6 +213,11 @@ function AdminPromotions() {
     [availableProducts],
   );
 
+  const categoryMap = useMemo(
+    () => new Map(categoriesList.map((c) => [c.id, c])),
+    [categoriesList],
+  );
+
   // Summary Metrics derived from current promotion state
   const activeCount = safePromos.filter((p) => derivePromotionStatus(p) === "active").length;
   const scheduledCount = safePromos.filter((p) => derivePromotionStatus(p) === "scheduled").length;
@@ -210,17 +228,23 @@ function AdminPromotions() {
     const s = derivePromotionStatus(p);
     return s === "active" || s === "scheduled";
   });
-  const hasUniversalPromo = activeOrScheduled.some((p) => p.applicableProductIds.includes("*"));
   const targetedProductIds = new Set<string>();
-  if (hasUniversalPromo) {
-    availableProducts.forEach((p) => targetedProductIds.add(p.id));
-  } else {
-    activeOrScheduled.forEach((p) => {
+  activeOrScheduled.forEach((p) => {
+    const type = resolvePromotionTargetType(p);
+    if (type === "all") {
+      availableProducts.forEach((prod) => targetedProductIds.add(prod.id));
+    } else if (type === "category" && p.categoryId) {
+      availableProducts.forEach((prod) => {
+        if (prod.categoryId === p.categoryId) {
+          targetedProductIds.add(prod.id);
+        }
+      });
+    } else {
       p.applicableProductIds.forEach((id) => {
         if (id !== "*") targetedProductIds.add(id);
       });
-    });
-  }
+    }
+  });
   const productsOnPromotionCount = targetedProductIds.size;
 
   // Filter promotions
@@ -239,13 +263,17 @@ function AdminPromotions() {
       const q = searchQuery.toLowerCase().trim();
       const nameMatch = p.name.toLowerCase().includes(q);
       const descMatch = (p.description || "").toLowerCase().includes(q);
+      const catName = p.categoryId
+        ? categoryMap.get(p.categoryId)?.name || p.applicableCategorySlug || ""
+        : p.applicableCategorySlug || "";
+      const catMatch = catName.toLowerCase().includes(q);
       const productMatch = p.applicableProductIds.some((id) => {
         if (id === "*") return "all products".includes(q) || "all menu products".includes(q);
         const prod = productMap.get(id);
         return prod?.name.toLowerCase().includes(q);
       });
 
-      if (!nameMatch && !descMatch && !productMatch) {
+      if (!nameMatch && !descMatch && !productMatch && !catMatch) {
         return false;
       }
     }
@@ -289,7 +317,8 @@ function AdminPromotions() {
     setStartDate(today);
     setEndDate(nextWeek);
     setStatusMode("auto");
-    setTargetAll(true);
+    setTargetType("all");
+    setSelectedCategoryId("");
     setSelectedProductIds([]);
     setMinOrderAmount("");
     setFormErrors({});
@@ -305,7 +334,9 @@ function AdminPromotions() {
     setStartDate(promo.startDate);
     setEndDate(promo.endDate);
     setStatusMode(promo.status === "draft" ? "draft" : "auto");
-    setTargetAll(promo.applicableProductIds.includes("*"));
+    const derivedTarget = resolvePromotionTargetType(promo);
+    setTargetType(derivedTarget);
+    setSelectedCategoryId(promo.categoryId || "");
     setSelectedProductIds(promo.applicableProductIds.filter((id) => id !== "*"));
     setMinOrderAmount(promo.minOrderAmount ? String(promo.minOrderAmount) : "");
     setFormErrors({});
@@ -336,8 +367,12 @@ function AdminPromotions() {
       errors.endDate = "End date must be on or after start date.";
     }
 
-    if (!targetAll && selectedProductIds.length === 0) {
-      errors.products = "Select at least one product or choose 'All Products'.";
+    if (targetType === "category" && !selectedCategoryId) {
+      errors.category = "Please select a category.";
+    }
+
+    if (targetType === "products" && selectedProductIds.length === 0) {
+      errors.products = "Select at least one product.";
     }
 
     if (minOrderAmount.trim()) {
@@ -374,9 +409,11 @@ function AdminPromotions() {
       endDate,
       status: computedStatus,
       minOrderAmount: minOrderAmount.trim() ? Number(minOrderAmount) : null,
+      categoryId: targetType === "category" ? selectedCategoryId : null,
     };
 
-    const targetIds = targetAll ? ["*"] : selectedProductIds;
+    const targetIds =
+      targetType === "all" ? [] : targetType === "category" ? [] : selectedProductIds;
 
     try {
       if (editingPromotion) {
@@ -384,6 +421,7 @@ function AdminPromotions() {
           editingPromotion.id,
           payload,
           targetIds,
+          targetType,
         );
         if (updateErr) {
           toast.error(updateErr.message);
@@ -392,7 +430,7 @@ function AdminPromotions() {
         }
         toast.success(`Promotion "${payload.name}" updated`);
       } else {
-        const { error: createErr } = await createAdminPromotion(payload, targetIds);
+        const { error: createErr } = await createAdminPromotion(payload, targetIds, targetType);
         if (createErr) {
           toast.error(createErr.message);
           setIsSubmitting(false);
@@ -403,7 +441,7 @@ function AdminPromotions() {
 
       setIsFormOpen(false);
       await loadData();
-    } catch (err: any) {
+    } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Failed to save promotion");
     } finally {
       setIsSubmitting(false);
@@ -425,7 +463,7 @@ function AdminPromotions() {
       }
       setDeletingId(null);
       await loadData();
-    } catch (err: any) {
+    } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Failed to delete promotion");
     }
   };
@@ -615,9 +653,7 @@ function AdminPromotions() {
             <h3 className="font-display text-lg font-semibold text-foreground">
               Unable to load promotions
             </h3>
-            <p className="text-xs text-muted-foreground max-w-md mx-auto">
-              {error}
-            </p>
+            <p className="text-xs text-muted-foreground max-w-md mx-auto">{error}</p>
           </div>
           <Button onClick={loadData} size="sm" className="gap-2">
             <RotateCcw className="size-3.5" aria-hidden />
@@ -699,9 +735,18 @@ function AdminPromotions() {
                     <div className="flex items-center justify-between text-muted-foreground">
                       <span>Targeting:</span>
                       <span className="font-medium text-foreground truncate max-w-[170px]">
-                        {isAll
-                          ? "All Menu Products"
-                          : `${promo.applicableProductIds.length} selected product(s)`}
+                        {(() => {
+                          const type = resolvePromotionTargetType(promo);
+                          if (type === "all") return "All Products";
+                          if (type === "category") {
+                            const catName =
+                              (promo.categoryId && categoryMap.get(promo.categoryId)?.name) ||
+                              promo.applicableCategorySlug ||
+                              "Category";
+                            return `Category: ${catName}`;
+                          }
+                          return `${promo.applicableProductIds.length} selected product(s)`;
+                        })()}
                       </span>
                     </div>
                   </div>
@@ -882,27 +927,106 @@ function AdminPromotions() {
               )}
             </div>
 
-            {/* Target Products Selection */}
-            <div className="space-y-2 border-t border-border/60 pt-3">
-              <div className="flex items-center justify-between">
-                <Label>Target Products Scope *</Label>
+            {/* Target Products Scope */}
+            <div className="space-y-3 border-t border-border/60 pt-3">
+              <Label>Apply To *</Label>
+              <div className="grid grid-cols-3 gap-2">
                 <button
                   type="button"
-                  className="text-xs text-primary underline"
-                  onClick={() => setTargetAll(!targetAll)}
+                  onClick={() => {
+                    setTargetType("all");
+                    setSelectedCategoryId("");
+                    setSelectedProductIds([]);
+                  }}
+                  className={cn(
+                    "flex flex-col items-center justify-center p-2.5 rounded-xl border text-center transition-all cursor-pointer",
+                    targetType === "all"
+                      ? "border-primary bg-primary/10 text-primary font-semibold shadow-xs"
+                      : "border-border bg-card hover:bg-muted/40 text-muted-foreground",
+                  )}
                 >
-                  {targetAll ? "Select specific items" : "Apply to all menu items"}
+                  <span className="text-xs">All Products</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTargetType("category");
+                    setSelectedProductIds([]);
+                  }}
+                  className={cn(
+                    "flex flex-col items-center justify-center p-2.5 rounded-xl border text-center transition-all cursor-pointer",
+                    targetType === "category"
+                      ? "border-primary bg-primary/10 text-primary font-semibold shadow-xs"
+                      : "border-border bg-card hover:bg-muted/40 text-muted-foreground",
+                  )}
+                >
+                  <span className="text-xs">Category</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTargetType("products");
+                    setSelectedCategoryId("");
+                  }}
+                  className={cn(
+                    "flex flex-col items-center justify-center p-2.5 rounded-xl border text-center transition-all cursor-pointer",
+                    targetType === "products"
+                      ? "border-primary bg-primary/10 text-primary font-semibold shadow-xs"
+                      : "border-border bg-card hover:bg-muted/40 text-muted-foreground",
+                  )}
+                >
+                  <span className="text-xs">Specific Products</span>
                 </button>
               </div>
 
-              {targetAll ? (
+              {/* Case A: All Products */}
+              {targetType === "all" && (
                 <div className="rounded-lg border border-dashed border-border bg-secondary/20 p-3 text-xs text-muted-foreground">
                   <p className="font-medium text-foreground">All Menu Products</p>
                   <p className="mt-0.5">
-                    This promotion will apply to all existing café items and future additions.
+                    This promotion applies to every eligible café product across all menu
+                    categories.
                   </p>
                 </div>
-              ) : (
+              )}
+
+              {/* Case B: Category */}
+              {targetType === "category" && (
+                <div className="space-y-1.5">
+                  <Label htmlFor="promo-category-select">Select Category *</Label>
+                  <Select
+                    value={selectedCategoryId}
+                    onValueChange={(val) => setSelectedCategoryId(val)}
+                  >
+                    <SelectTrigger id="promo-category-select" className="h-9">
+                      <SelectValue placeholder="Choose a menu category..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {categoriesList
+                        .filter((c) => c.active !== false)
+                        .map((c) => (
+                          <SelectItem key={c.id} value={c.id}>
+                            {c.name}
+                          </SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
+                  {formErrors.category && (
+                    <p className="text-xs text-destructive flex items-center gap-1">
+                      <AlertCircle className="size-3" /> {formErrors.category}
+                    </p>
+                  )}
+                  {selectedCategoryId && (
+                    <p className="text-xs text-muted-foreground">
+                      Promotion applies to all available items under{" "}
+                      <strong>{categoryMap.get(selectedCategoryId)?.name}</strong>.
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* Case C: Specific Products */}
+              {targetType === "products" && (
                 <div className="space-y-1.5">
                   <p className="text-xs text-muted-foreground">
                     Select the products that qualify for this discount:
@@ -952,19 +1076,11 @@ function AdminPromotions() {
           </div>
 
           <DialogFooter>
-            <Button
-              variant="outline"
-              disabled={isSubmitting}
-              onClick={() => setIsFormOpen(false)}
-            >
+            <Button variant="outline" disabled={isSubmitting} onClick={() => setIsFormOpen(false)}>
               Cancel
             </Button>
             <Button disabled={isSubmitting} onClick={handleSavePromotion}>
-              {isSubmitting
-                ? "Saving…"
-                : editingPromotion
-                  ? "Save Changes"
-                  : "Create Promotion"}
+              {isSubmitting ? "Saving…" : editingPromotion ? "Save Changes" : "Create Promotion"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1052,78 +1168,130 @@ function AdminPromotions() {
                 </div>
               </section>
 
-              {/* Targeted Products List */}
-              <section aria-labelledby="details-products" className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <h3
-                    id="details-products"
-                    className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground"
-                  >
-                    Applicable Menu Items
-                  </h3>
-                  <span className="text-xs text-muted-foreground font-medium">
-                    {selectedDetailsPromo.applicableProductIds.includes("*")
-                      ? "All Items"
-                      : `${selectedDetailsPromo.applicableProductIds.length} item(s)`}
-                  </span>
-                </div>
+              {/* Targeted Products / Scope */}
+              {(() => {
+                const detailsTargetType = resolvePromotionTargetType(selectedDetailsPromo);
+                const detailsCategory = selectedDetailsPromo.categoryId
+                  ? categoryMap.get(selectedDetailsPromo.categoryId)
+                  : undefined;
+                const categoryProducts = selectedDetailsPromo.categoryId
+                  ? availableProducts.filter(
+                      (p: PromotionProductItem) => p.categoryId === selectedDetailsPromo.categoryId,
+                    )
+                  : [];
 
-                {selectedDetailsPromo.applicableProductIds.includes("*") ? (
-                  <div className="rounded-xl border border-border bg-card/60 p-4 text-xs text-muted-foreground">
-                    <p className="font-medium text-foreground">Universal Promotion</p>
-                    <p className="mt-0.5">
-                      This offer is applicable to all items on the NEBA Café menu.
-                    </p>
-                  </div>
-                ) : (
-                  <ul className="divide-y divide-border rounded-xl border border-border bg-card/60 px-4 max-h-56 overflow-y-auto">
-                    {selectedDetailsPromo.applicableProductIds.map((id) => {
-                      const prod =
-                        selectedDetailsPromo.products?.find((p) => p.id === id) ||
-                        productMap.get(id);
+                return (
+                  <section aria-labelledby="details-products" className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <h3
+                        id="details-products"
+                        className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground"
+                      >
+                        Target
+                      </h3>
+                      <span className="text-xs text-muted-foreground font-medium">
+                        {detailsTargetType === "all"
+                          ? "All Products"
+                          : detailsTargetType === "category"
+                            ? `Category: ${detailsCategory?.name || selectedDetailsPromo.categoryId || "Selected Category"}`
+                            : `${selectedDetailsPromo.applicableProductIds.length} selected products`}
+                      </span>
+                    </div>
 
-                      if (!prod) {
-                        return (
-                          <li key={id} className="py-2.5 text-xs text-muted-foreground">
-                            Product #{id} (not currently active in menu)
-                          </li>
-                        );
-                      }
-                      return (
-                        <li key={id} className="flex items-center justify-between gap-3 py-2.5">
-                          <div className="flex items-center gap-2.5 min-w-0">
-                            {prod.imageUrl ? (
-                              <img
-                                src={prod.imageUrl}
-                                alt={prod.name}
-                                className="size-9 rounded-md object-cover bg-muted shrink-0"
-                                width={36}
-                                height={36}
-                                loading="lazy"
-                              />
-                            ) : (
-                              <div className="flex size-9 items-center justify-center rounded-md bg-muted text-muted-foreground shrink-0">
-                                <ShoppingBag className="size-4" />
-                              </div>
-                            )}
-                            <div className="min-w-0">
-                              <p className="font-medium text-foreground text-xs truncate">
-                                {prod.name}
-                              </p>
-                              <p className="text-[10px] text-muted-foreground">
-                                {prod.isAvailable ? "Available" : "Unavailable"}
-                              </p>
-                            </div>
+                    {detailsTargetType === "all" ? (
+                      <div className="rounded-xl border border-border bg-card/60 p-4 text-xs text-muted-foreground">
+                        <p className="font-medium text-foreground">All Products</p>
+                        <p className="mt-0.5">
+                          This offer applies to all eligible products across the entire NEBA Café
+                          menu.
+                        </p>
+                      </div>
+                    ) : detailsTargetType === "category" ? (
+                      <div className="rounded-xl border border-border bg-card/60 p-4 text-xs text-muted-foreground space-y-2">
+                        <div>
+                          <p className="font-medium text-foreground">
+                            Category: {detailsCategory?.name || "Selected Category"}
+                          </p>
+                          <p className="mt-0.5">
+                            This offer applies to every eligible product inside the{" "}
+                            <strong className="text-foreground">
+                              {detailsCategory?.name || "selected"}
+                            </strong>{" "}
+                            category.
+                          </p>
+                        </div>
+                        {categoryProducts.length > 0 && (
+                          <div className="pt-2 border-t border-border/50">
+                            <p className="text-[11px] font-medium text-foreground mb-1.5">
+                              Category Items ({categoryProducts.length})
+                            </p>
+                            <ul className="divide-y divide-border/50 max-h-48 overflow-y-auto">
+                              {categoryProducts.map((prod) => (
+                                <li
+                                  key={prod.id}
+                                  className="flex items-center justify-between py-1.5 text-xs"
+                                >
+                                  <span className="text-foreground truncate">{prod.name}</span>
+                                  <span className="text-muted-foreground font-medium">
+                                    {formatETB(prod.price)}
+                                  </span>
+                                </li>
+                              ))}
+                            </ul>
                           </div>
-                          <span className="text-xs font-semibold text-foreground whitespace-nowrap">
-                            {formatETB(prod.price)}
-                          </span>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                )}
-              </section>
+                        )}
+                      </div>
+                    ) : (
+                      <ul className="divide-y divide-border rounded-xl border border-border bg-card/60 px-4 max-h-56 overflow-y-auto">
+                        {selectedDetailsPromo.applicableProductIds.map((id) => {
+                          const prod =
+                            selectedDetailsPromo.products?.find((p) => p.id === id) ||
+                            productMap.get(id);
+
+                          if (!prod) {
+                            return (
+                              <li key={id} className="py-2.5 text-xs text-muted-foreground">
+                                Product #{id} (not currently active in menu)
+                              </li>
+                            );
+                          }
+                          return (
+                            <li key={id} className="flex items-center justify-between gap-3 py-2.5">
+                              <div className="flex items-center gap-2.5 min-w-0">
+                                {prod.imageUrl ? (
+                                  <img
+                                    src={prod.imageUrl}
+                                    alt={prod.name}
+                                    className="size-9 rounded-md object-cover bg-muted shrink-0"
+                                    width={36}
+                                    height={36}
+                                    loading="lazy"
+                                  />
+                                ) : (
+                                  <div className="flex size-9 items-center justify-center rounded-md bg-muted text-muted-foreground shrink-0">
+                                    <ShoppingBag className="size-4" />
+                                  </div>
+                                )}
+                                <div className="min-w-0">
+                                  <p className="font-medium text-foreground text-xs truncate">
+                                    {prod.name}
+                                  </p>
+                                  <p className="text-[10px] text-muted-foreground">
+                                    {prod.isAvailable ? "Available" : "Unavailable"}
+                                  </p>
+                                </div>
+                              </div>
+                              <span className="text-xs font-semibold text-foreground whitespace-nowrap">
+                                {formatETB(prod.price)}
+                              </span>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
+                  </section>
+                );
+              })()}
 
               {/* Actions Footer */}
               <div className="pt-2 mt-auto border-t border-border flex gap-2">

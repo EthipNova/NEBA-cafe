@@ -1,13 +1,17 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import {
   AlertCircle,
-  ArrowRight,
   Banknote,
   CheckCircle2,
   Clock,
   CreditCard,
   ExternalLink,
+  Eye,
+  EyeOff,
+  Lock,
+  LogIn,
   LogOut,
+  Mail,
   MapPin,
   Phone,
   Receipt,
@@ -18,11 +22,13 @@ import {
   Store,
   Truck,
   User,
+  UserPlus,
   Utensils,
   Wallet,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import type { Session } from "@supabase/supabase-js";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -32,14 +38,13 @@ import { OrderTimeline } from "@/components/site/OrderTimeline";
 import { formatETB, getProduct } from "@/lib/menu-data";
 import {
   methodLabels,
-  readOrders,
   saveOrder,
   statusLabels,
   type Order,
   type OrderMethod,
   type OrderStatus,
 } from "@/lib/orders";
-import { fetchOrders, updateOrderPayment } from "@/services/api";
+import { fetchCustomerProfile, fetchOrders, updateOrderPayment } from "@/services/api";
 import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 
@@ -49,7 +54,8 @@ export const Route = createFileRoute("/account")({
       { title: "Customer Dashboard & Orders — NEBA Café" },
       {
         name: "description",
-        content: "Track live orders, view your complete order history, and manage your NEBA Café account.",
+        content:
+          "Track live orders, view your complete order history, and manage your NEBA Café account.",
       },
       { property: "og:title", content: "Customer Dashboard — NEBA Café" },
       { property: "og:description", content: "Real-time order tracking and customer history." },
@@ -58,8 +64,6 @@ export const Route = createFileRoute("/account")({
   component: AccountPage,
 });
 
-const STORAGE_KEY = "neba.profile.v1";
-
 function MethodIcon({ method }: { method: OrderMethod }) {
   if (method === "delivery") return <Truck className="size-4" aria-hidden />;
   if (method === "takeaway") return <Store className="size-4" aria-hidden />;
@@ -67,12 +71,30 @@ function MethodIcon({ method }: { method: OrderMethod }) {
 }
 
 function AccountPage() {
-  const [profile, setProfile] = useState<{ name: string; phone: string } | null>(null);
-  const [form, setForm] = useState({ name: "", phone: "" });
+  // Session & customer profile state
+  const [session, setSession] = useState<Session | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [profile, setProfile] = useState<{ name: string; phone: string; email: string } | null>(
+    null,
+  );
   const [orders, setOrders] = useState<Order[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loadingOrders, setLoadingOrders] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [filter, setFilter] = useState<"all" | "active" | "completed">("all");
+
+  // Auth UI state (when not signed in)
+  const [authMode, setAuthMode] = useState<"signin" | "register">("signin");
+  const [signInForm, setSignInForm] = useState({ email: "", password: "" });
+  const [registerForm, setRegisterForm] = useState({
+    fullName: "",
+    email: "",
+    phone: "",
+    password: "",
+    confirmPassword: "",
+  });
+  const [showPassword, setShowPassword] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [submittingAuth, setSubmittingAuth] = useState(false);
 
   // Inline payment modal / settlement state
   const [payingOrderId, setPayingOrderId] = useState<string | null>(null);
@@ -80,44 +102,29 @@ function AccountPage() {
   const [payTxRef, setPayTxRef] = useState("");
   const [submittingPayment, setSubmittingPayment] = useState(false);
 
-  // Initialize profile (from storage or latest order customer details)
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        setProfile(parsed);
-        setForm(parsed);
-      } else {
-        // Auto-detect from previous orders on this device
-        const local = readOrders();
-        if (local.length > 0 && local[0]?.customer?.phone) {
-          const auto = {
-            name: local[0].customer.name || "Guest",
-            phone: local[0].customer.phone,
-          };
-          setProfile(auto);
-          setForm(auto);
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(auto));
-        }
-      }
-    } catch {
-      /* ignore */
-    }
-  }, []);
-
-  // Fetch orders with real-time database synchronization
-  const loadOrders = async (isManual = false) => {
+  // Load customer profile and orders using verified Bearer session token
+  const loadProfileAndOrders = async (token?: string, isManual = false) => {
     if (isManual) setRefreshing(true);
+    setLoadingOrders(true);
     try {
-      const phone = profile?.phone?.trim();
-      const remoteOrders = await fetchOrders(phone || undefined);
+      // 1. Fetch profile from /api/customer/profile
+      const profData = await fetchCustomerProfile({ token });
+      if (profData) {
+        setProfile({
+          name: profData.customer?.name || profData.user.full_name || "Valued Customer",
+          phone: profData.customer?.phone || profData.user.phone || "",
+          email: profData.customer?.email || profData.user.email || "",
+        });
+      }
+
+      // 2. Fetch authenticated customer's owned orders
+      const remoteOrders = await fetchOrders({ token });
       setOrders(remoteOrders);
     } catch (err) {
-      console.warn("Error loading customer orders:", err);
+      console.warn("Error loading customer data:", err);
       setOrders([]);
     } finally {
-      setLoading(false);
+      setLoadingOrders(false);
       if (isManual) {
         setRefreshing(false);
         toast.success("Orders refreshed with live database");
@@ -125,64 +132,199 @@ function AccountPage() {
     }
   };
 
-  // Load orders when profile changes
+  // Synchronize session on mount & subscribe to Supabase Auth state changes
   useEffect(() => {
-    void loadOrders();
+    let mounted = true;
 
-    // Supabase Realtime channel for live updates
+    // Check existing active session
+    supabase.auth
+      .getSession()
+      .then(({ data: { session: currentSession } }) => {
+        if (!mounted) return;
+        setSession(currentSession);
+        setAuthLoading(false);
+        if (currentSession) {
+          void loadProfileAndOrders(currentSession.access_token);
+        }
+      })
+      .catch(() => {
+        if (mounted) setAuthLoading(false);
+      });
+
+    // Subscribe to auth events (SIGN_IN, SIGNED_OUT, TOKEN_REFRESHED)
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (event, nextSession) => {
+      if (!mounted) return;
+      setSession(nextSession);
+      setAuthLoading(false);
+
+      if (nextSession) {
+        void loadProfileAndOrders(nextSession.access_token);
+      } else {
+        setOrders([]);
+        setProfile({ name: "Valued Customer", phone: "", email: "" });
+      }
+    });
+
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  // Realtime subscription for customer's live orders & payment changes
+  useEffect(() => {
+    if (!session) return;
+
     const channel = supabase
       .channel("customer-dashboard-realtime")
-      .on(
-        "postgres_changes" as any,
-        { event: "*", schema: "public", table: "orders" },
-        () => {
-          void loadOrders();
-        },
-      )
-      .on(
-        "postgres_changes" as any,
-        { event: "*", schema: "public", table: "payments" },
-        () => {
-          void loadOrders();
-        },
-      )
+      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, () => {
+        void loadProfileAndOrders(session.access_token);
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "payments" }, () => {
+        void loadProfileAndOrders(session.access_token);
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "order_status_logs" }, () => {
+        void loadProfileAndOrders(session.access_token);
+      })
       .subscribe();
 
-    // Multi-tab storage sync
-    const handleStorage = (e: StorageEvent) => {
-      if (e.key === "neba.orders.v1") {
-        void loadOrders();
-      }
-    };
-    window.addEventListener("storage", handleStorage);
-
-    // Auto-polling interval every 8 seconds if active order is processing
     const interval = setInterval(() => {
-      void loadOrders();
-    }, 8000);
+      void loadProfileAndOrders(session.access_token);
+    }, 10000);
 
     return () => {
       void supabase.removeChannel(channel);
-      window.removeEventListener("storage", handleStorage);
       clearInterval(interval);
     };
-  }, [profile?.phone]);
+  }, [session]);
 
-  const signIn = () => {
-    if (!form.name.trim() || !form.phone.trim()) {
-      toast.error("Please enter your name and contact phone number");
+  const handleSignIn = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError(null);
+    const email = signInForm.email.trim();
+    const password = signInForm.password;
+
+    if (!email || !password) {
+      setAuthError("Please enter both your email address and password.");
       return;
     }
-    const next = { name: form.name.trim(), phone: form.phone.trim() };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-    setProfile(next);
-    toast.success("Welcome back, " + next.name);
+
+    setSubmittingAuth(true);
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (error) {
+        if (error.message.toLowerCase().includes("invalid login credentials")) {
+          setAuthError("Invalid email or password. Please check your credentials.");
+        } else {
+          setAuthError(error.message || "Failed to sign in.");
+        }
+        return;
+      }
+
+      if (data.session) {
+        setSession(data.session);
+        toast.success("Welcome back!");
+        void loadProfileAndOrders(data.session.access_token);
+      }
+    } catch {
+      setAuthError("An unexpected network error occurred. Please try again.");
+    } finally {
+      setSubmittingAuth(false);
+    }
   };
 
-  const signOut = () => {
-    localStorage.removeItem(STORAGE_KEY);
+  const handleRegister = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError(null);
+
+    const name = registerForm.fullName.trim();
+    const email = registerForm.email.trim();
+    const phone = registerForm.phone.trim();
+    const password = registerForm.password;
+    const confirmPassword = registerForm.confirmPassword;
+
+    if (!name) {
+      setAuthError("Please enter your full name.");
+      return;
+    }
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setAuthError("Please enter a valid email address.");
+      return;
+    }
+    if (!phone || phone.replace(/\D/g, "").length < 8) {
+      setAuthError("Please enter a valid phone number (at least 9 digits).");
+      return;
+    }
+    if (password.length < 6) {
+      setAuthError("Password must be at least 6 characters long.");
+      return;
+    }
+    if (password !== confirmPassword) {
+      setAuthError("Passwords do not match. Please verify.");
+      return;
+    }
+
+    setSubmittingAuth(true);
+    try {
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            full_name: name,
+            phone,
+            role: "CUSTOMER",
+          },
+        },
+      });
+
+      if (error) {
+        setAuthError(error.message || "Registration failed. Please try again.");
+        return;
+      }
+
+      if (data.session) {
+        setSession(data.session);
+        toast.success("Welcome to NEBA Café! Your account is created.");
+        void loadProfileAndOrders(data.session.access_token);
+      } else if (data.user) {
+        toast.info(
+          "Account created! If email confirmation is enabled, please verify your email before signing in.",
+        );
+        setAuthMode("signin");
+        setSignInForm({ email, password: "" });
+      }
+    } catch {
+      setAuthError("An unexpected network error occurred during registration. Please try again.");
+    } finally {
+      setSubmittingAuth(false);
+    }
+  };
+
+  const signOut = async () => {
+    try {
+      await supabase.auth.signOut();
+    } catch {
+      /* ignore */
+    }
+    setSession(null);
     setProfile(null);
-    setForm({ name: "", phone: "" });
+    setOrders([]);
+    setSignInForm({ email: "", password: "" });
+    setRegisterForm({
+      fullName: "",
+      email: "",
+      phone: "",
+      password: "",
+      confirmPassword: "",
+    });
+    setAuthError(null);
     toast.success("You have signed out");
   };
 
@@ -217,15 +359,9 @@ function AccountPage() {
   };
 
   // Extract customer data
-  const activeOrders = useMemo(
-    () => orders.filter((o) => o.status !== "completed"),
-    [orders],
-  );
+  const activeOrders = useMemo(() => orders.filter((o) => o.status !== "completed"), [orders]);
 
-  const pastOrders = useMemo(
-    () => orders.filter((o) => o.status === "completed"),
-    [orders],
-  );
+  const pastOrders = useMemo(() => orders.filter((o) => o.status === "completed"), [orders]);
 
   const filteredOrders = useMemo(() => {
     if (filter === "active") return activeOrders;
@@ -243,13 +379,24 @@ function AccountPage() {
     return list;
   }, [orders]);
 
-  const totalSpent = useMemo(
-    () => orders.reduce((sum, o) => sum + (o.total || 0), 0),
-    [orders],
-  );
+  const totalSpent = useMemo(() => orders.reduce((sum, o) => sum + (o.total || 0), 0), [orders]);
 
-  // Unauthenticated / first-time state
-  if (!profile && orders.length === 0) {
+  // Loading state while determining session
+  if (authLoading) {
+    return (
+      <Section className="max-w-md py-20 text-center">
+        <div className="mx-auto flex size-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+          <RefreshCw className="size-6 animate-spin" />
+        </div>
+        <p className="mt-4 text-sm text-muted-foreground animate-pulse">
+          Checking customer session...
+        </p>
+      </Section>
+    );
+  }
+
+  // Unauthenticated: Show real Sign In / Register tabs
+  if (!session) {
     return (
       <Section className="max-w-md py-12">
         <div className="text-center">
@@ -258,39 +405,265 @@ function AccountPage() {
           </div>
           <h1 className="mt-4 text-3xl font-display font-semibold">Customer Account</h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            Sign in with your name and phone number to view live order tracking, past orders, and saved addresses.
+            Sign in to track active orders in real time, view your order history, and manage your
+            account.
           </p>
         </div>
 
-        <div className="surface-card mt-8 space-y-4 p-6 sm:p-8">
-          <div className="space-y-2">
-            <Label htmlFor="acc-name">Full name</Label>
-            <Input
-              id="acc-name"
-              value={form.name}
-              onChange={(e) => setForm({ ...form, name: e.target.value })}
-              placeholder="e.g. Abebe Kebede"
-              autoComplete="name"
-            />
+        {/* Auth Mode Toggle Tabs */}
+        <div className="mt-8 grid grid-cols-2 rounded-xl bg-muted/60 p-1 text-sm font-medium">
+          <button
+            type="button"
+            onClick={() => {
+              setAuthMode("signin");
+              setAuthError(null);
+            }}
+            className={cn(
+              "flex items-center justify-center gap-2 rounded-lg py-2.5 transition-all",
+              authMode === "signin"
+                ? "bg-background text-foreground shadow-sm font-semibold"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            <LogIn className="size-4" />
+            <span>Sign In</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setAuthMode("register");
+              setAuthError(null);
+            }}
+            className={cn(
+              "flex items-center justify-center gap-2 rounded-lg py-2.5 transition-all",
+              authMode === "register"
+                ? "bg-background text-foreground shadow-sm font-semibold"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            <UserPlus className="size-4" />
+            <span>Create Account</span>
+          </button>
+        </div>
+
+        {/* Error notification banner */}
+        {authError && (
+          <div className="mt-4 flex items-start gap-2.5 rounded-xl border border-destructive/30 bg-destructive/10 p-3.5 text-xs text-destructive">
+            <AlertCircle className="size-4 shrink-0 mt-0.5" />
+            <span>{authError}</span>
           </div>
-          <div className="space-y-2">
-            <Label htmlFor="acc-phone">Phone number</Label>
-            <Input
-              id="acc-phone"
-              value={form.phone}
-              onChange={(e) => setForm({ ...form, phone: e.target.value })}
-              placeholder="+251 91 234 5678"
-              autoComplete="tel"
-            />
-          </div>
-          <Button className="w-full font-semibold" onClick={signIn}>
-            Continue to Dashboard
-          </Button>
-          <div className="text-center pt-2">
-            <Link to="/menu" className="text-xs text-primary hover:underline">
-              Browse Menu & Order First →
-            </Link>
-          </div>
+        )}
+
+        {/* SIGN IN FORM */}
+        {authMode === "signin" ? (
+          <form onSubmit={handleSignIn} className="surface-card mt-4 space-y-4 p-6 sm:p-8">
+            <div className="space-y-2">
+              <Label htmlFor="signin-email">Email address</Label>
+              <div className="relative">
+                <Mail className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  id="signin-email"
+                  type="email"
+                  value={signInForm.email}
+                  onChange={(e) => setSignInForm({ ...signInForm, email: e.target.value })}
+                  placeholder="name@example.com"
+                  autoComplete="email"
+                  className="pl-9"
+                  required
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="signin-password">Password</Label>
+              <div className="relative">
+                <Lock className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  id="signin-password"
+                  type={showPassword ? "text" : "password"}
+                  value={signInForm.password}
+                  onChange={(e) => setSignInForm({ ...signInForm, password: e.target.value })}
+                  placeholder="••••••••"
+                  autoComplete="current-password"
+                  className="pl-9 pr-10"
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  tabIndex={-1}
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                >
+                  {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                </button>
+              </div>
+            </div>
+
+            <Button type="submit" disabled={submittingAuth} className="w-full font-semibold gap-2">
+              {submittingAuth ? (
+                <>
+                  <RefreshCw className="size-4 animate-spin" />
+                  <span>Signing In...</span>
+                </>
+              ) : (
+                <>
+                  <LogIn className="size-4" />
+                  <span>Sign In to Dashboard</span>
+                </>
+              )}
+            </Button>
+
+            <div className="text-center pt-2 border-t border-border/50 text-xs text-muted-foreground">
+              <span>Don't have an account? </span>
+              <button
+                type="button"
+                onClick={() => {
+                  setAuthMode("register");
+                  setAuthError(null);
+                }}
+                className="text-primary hover:underline font-medium"
+              >
+                Create one now →
+              </button>
+            </div>
+          </form>
+        ) : (
+          /* REGISTRATION FORM */
+          <form onSubmit={handleRegister} className="surface-card mt-4 space-y-4 p-6 sm:p-8">
+            <div className="space-y-2">
+              <Label htmlFor="reg-name">Full name</Label>
+              <div className="relative">
+                <User className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  id="reg-name"
+                  type="text"
+                  value={registerForm.fullName}
+                  onChange={(e) => setRegisterForm({ ...registerForm, fullName: e.target.value })}
+                  placeholder="Abebe Kebede"
+                  autoComplete="name"
+                  className="pl-9"
+                  required
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="reg-email">Email address</Label>
+              <div className="relative">
+                <Mail className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  id="reg-email"
+                  type="email"
+                  value={registerForm.email}
+                  onChange={(e) => setRegisterForm({ ...registerForm, email: e.target.value })}
+                  placeholder="name@example.com"
+                  autoComplete="email"
+                  className="pl-9"
+                  required
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="reg-phone">Contact phone</Label>
+              <div className="relative">
+                <Phone className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  id="reg-phone"
+                  type="tel"
+                  value={registerForm.phone}
+                  onChange={(e) => setRegisterForm({ ...registerForm, phone: e.target.value })}
+                  placeholder="+251 91 234 5678"
+                  autoComplete="tel"
+                  className="pl-9"
+                  required
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="reg-password">Password</Label>
+              <div className="relative">
+                <Lock className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  id="reg-password"
+                  type={showPassword ? "text" : "password"}
+                  value={registerForm.password}
+                  onChange={(e) => setRegisterForm({ ...registerForm, password: e.target.value })}
+                  placeholder="At least 6 characters"
+                  autoComplete="new-password"
+                  className="pl-9 pr-10"
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  tabIndex={-1}
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                >
+                  {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                </button>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="reg-confirm-password">Confirm password</Label>
+              <div className="relative">
+                <Lock className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  id="reg-confirm-password"
+                  type={showPassword ? "text" : "password"}
+                  value={registerForm.confirmPassword}
+                  onChange={(e) =>
+                    setRegisterForm({ ...registerForm, confirmPassword: e.target.value })
+                  }
+                  placeholder="Repeat your password"
+                  autoComplete="new-password"
+                  className="pl-9"
+                  required
+                />
+              </div>
+            </div>
+
+            <Button type="submit" disabled={submittingAuth} className="w-full font-semibold gap-2">
+              {submittingAuth ? (
+                <>
+                  <RefreshCw className="size-4 animate-spin" />
+                  <span>Creating Account...</span>
+                </>
+              ) : (
+                <>
+                  <UserPlus className="size-4" />
+                  <span>Register & Continue</span>
+                </>
+              )}
+            </Button>
+
+            <div className="text-center pt-2 border-t border-border/50 text-xs text-muted-foreground">
+              <span>Already have an account? </span>
+              <button
+                type="button"
+                onClick={() => {
+                  setAuthMode("signin");
+                  setAuthError(null);
+                }}
+                className="text-primary hover:underline font-medium"
+              >
+                Sign in here →
+              </button>
+            </div>
+          </form>
+        )}
+
+        <div className="text-center pt-4">
+          <Link
+            to="/menu"
+            className="text-xs text-muted-foreground hover:text-primary transition-colors"
+          >
+            Browse Menu & Order as Guest →
+          </Link>
         </div>
       </Section>
     );
@@ -303,14 +676,24 @@ function AccountPage() {
       {/* 1. DASHBOARD HEADER & QUICK STATS */}
       <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border pb-6">
         <div>
-          <Badge variant="outline" className="mb-2 gap-1 px-2.5 py-0.5 text-xs text-primary border-primary/30">
+          <Badge
+            variant="outline"
+            className="mb-2 gap-1 px-2.5 py-0.5 text-xs text-primary border-primary/30"
+          >
             <User className="size-3" /> Customer Dashboard
           </Badge>
           <h1 className="text-3xl sm:text-4xl font-display font-bold">
-            Welcome back, {profile?.name || "Valued Diner"}
+            Welcome back,{" "}
+            {profile?.name ||
+              session?.user?.user_metadata?.["full_name"] ||
+              session?.user?.email?.split("@")[0] ||
+              "Valued Customer"}
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            {profile?.phone ? `Contact: ${profile.phone} · ` : ""}
+            {profile?.phone || session?.user?.user_metadata?.["phone"]
+              ? `Contact: ${profile?.phone || session?.user?.user_metadata?.["phone"]} · `
+              : ""}
+            {session?.user?.email ? `Account: ${session.user.email} · ` : ""}
             Real-time status updates and order history
           </p>
         </div>
@@ -319,14 +702,19 @@ function AccountPage() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => void loadOrders(true)}
+            onClick={() => void loadProfileAndOrders(session?.access_token, true)}
             disabled={refreshing}
             className="gap-1.5"
           >
             <RefreshCw className={cn("size-3.5", refreshing && "animate-spin")} />
             <span>Sync</span>
           </Button>
-          <Button variant="ghost" size="sm" onClick={signOut} className="gap-1.5 text-muted-foreground hover:text-destructive">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={signOut}
+            className="gap-1.5 text-muted-foreground hover:text-destructive"
+          >
             <LogOut className="size-3.5" />
             <span>Sign out</span>
           </Button>
@@ -345,21 +733,33 @@ function AccountPage() {
         </div>
         <div className="surface-card p-4">
           <span className="text-xs text-muted-foreground uppercase font-medium">Total Spent</span>
-          <p className="mt-1 font-display text-2xl font-bold text-foreground">{formatETB(totalSpent)}</p>
+          <p className="mt-1 font-display text-2xl font-bold text-foreground">
+            {formatETB(totalSpent)}
+          </p>
         </div>
         <div className="surface-card p-4">
-          <span className="text-xs text-muted-foreground uppercase font-medium">Saved Locations</span>
-          <p className="mt-1 font-display text-2xl font-bold text-foreground">{savedAddresses.length}</p>
+          <span className="text-xs text-muted-foreground uppercase font-medium">
+            Saved Locations
+          </span>
+          <p className="mt-1 font-display text-2xl font-bold text-foreground">
+            {savedAddresses.length}
+          </p>
         </div>
       </div>
 
       {/* 2. LIVE ACTIVE ORDER HERO SECTION (IF IN PROGRESS) */}
       {primaryActiveOrder && (
-        <section aria-labelledby="active-order-title" className="surface-card overflow-hidden border-primary/30 p-6 sm:p-8 space-y-6">
+        <section
+          aria-labelledby="active-order-title"
+          className="surface-card overflow-hidden border-primary/30 p-6 sm:p-8 space-y-6"
+        >
           <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border pb-4">
             <div>
               <div className="flex items-center gap-2">
-                <Badge variant="secondary" className="gap-1.5 bg-primary/10 text-primary font-semibold text-xs py-0.5 px-2.5">
+                <Badge
+                  variant="secondary"
+                  className="gap-1.5 bg-primary/10 text-primary font-semibold text-xs py-0.5 px-2.5"
+                >
                   <span className="size-2 rounded-full bg-primary animate-pulse" />
                   Order In Progress
                 </Badge>
@@ -371,7 +771,13 @@ function AccountPage() {
                 Order {primaryActiveOrder.number}
               </h2>
               <p className="text-xs text-muted-foreground mt-0.5">
-                Placed {new Date(primaryActiveOrder.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} · Status: <strong className="text-primary">{statusLabels[primaryActiveOrder.status]}</strong>
+                Placed{" "}
+                {new Date(primaryActiveOrder.createdAt).toLocaleTimeString([], {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}{" "}
+                · Status:{" "}
+                <strong className="text-primary">{statusLabels[primaryActiveOrder.status]}</strong>
               </p>
             </div>
 
@@ -387,12 +793,6 @@ function AccountPage() {
               >
                 {primaryActiveOrder.paymentStatus === "paid" ? "Paid" : "Payment Pending"}
               </Badge>
-              <Button asChild size="sm" className="gap-1 font-medium">
-                <Link to="/order/$id" params={{ id: primaryActiveOrder.id }}>
-                  <span>Live Tracking</span>
-                  <ArrowRight className="size-3.5" />
-                </Link>
-              </Button>
             </div>
           </div>
 
@@ -412,10 +812,17 @@ function AccountPage() {
                 {primaryActiveOrder.items.map((item) => {
                   const p = getProduct(item.productId);
                   return (
-                    <div key={item.productId} className="flex items-center justify-between py-2 text-xs">
+                    <div
+                      key={item.productId}
+                      className="flex items-center justify-between py-2 text-xs"
+                    >
                       <div className="flex items-center gap-2.5">
                         {p?.image ? (
-                          <img src={p.image} alt={item.name} className="size-8 rounded-md object-cover" />
+                          <img
+                            src={p.image}
+                            alt={item.name}
+                            className="size-8 rounded-md object-cover"
+                          />
                         ) : (
                           <div className="flex size-8 items-center justify-center rounded-md bg-muted text-muted-foreground">
                             <ShoppingBag className="size-3.5" />
@@ -440,18 +847,24 @@ function AccountPage() {
               <div className="space-y-2 text-xs">
                 <div className="flex items-center justify-between">
                   <span className="text-muted-foreground">Method:</span>
-                  <span className="font-medium text-foreground">{methodLabels[primaryActiveOrder.method]}</span>
+                  <span className="font-medium text-foreground">
+                    {methodLabels[primaryActiveOrder.method]}
+                  </span>
                 </div>
                 {primaryActiveOrder.customer.table && (
                   <div className="flex items-center justify-between">
                     <span className="text-muted-foreground">Table:</span>
-                    <span className="font-semibold text-foreground">#{primaryActiveOrder.customer.table}</span>
+                    <span className="font-semibold text-foreground">
+                      #{primaryActiveOrder.customer.table}
+                    </span>
                   </div>
                 )}
                 {primaryActiveOrder.customer.address && (
                   <div className="flex items-start justify-between gap-2">
                     <span className="text-muted-foreground">Delivery to:</span>
-                    <span className="font-medium text-foreground text-right">{primaryActiveOrder.customer.address}</span>
+                    <span className="font-medium text-foreground text-right">
+                      {primaryActiveOrder.customer.address}
+                    </span>
                   </div>
                 )}
                 <div className="flex items-center justify-between border-t border-border/60 pt-2 font-display text-base font-bold">
@@ -487,98 +900,120 @@ function AccountPage() {
       )}
 
       {/* MODAL / DRAWER FOR INSTANT DASHBOARD PAYMENT */}
-      {payingOrderId && (() => {
-        const targetOrder = orders.find((o) => o.id === payingOrderId);
-        if (!targetOrder) return null;
-        return (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
-            <div className="surface-card max-w-md w-full p-6 space-y-5 rounded-2xl shadow-xl border-primary/30 animate-in fade-in zoom-in-95">
-              <div className="flex items-center justify-between border-b border-border pb-3">
-                <div className="flex items-center gap-2">
-                  <CreditCard className="size-5 text-primary" />
-                  <h3 className="font-display text-lg font-bold">Settle Order {targetOrder.number}</h3>
+      {payingOrderId &&
+        (() => {
+          const targetOrder = orders.find((o) => o.id === payingOrderId);
+          if (!targetOrder) return null;
+          return (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
+              <div className="surface-card max-w-md w-full p-6 space-y-5 rounded-2xl shadow-xl border-primary/30 animate-in fade-in zoom-in-95">
+                <div className="flex items-center justify-between border-b border-border pb-3">
+                  <div className="flex items-center gap-2">
+                    <CreditCard className="size-5 text-primary" />
+                    <h3 className="font-display text-lg font-bold">
+                      Settle Order {targetOrder.number}
+                    </h3>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setPayingOrderId(null)}
+                    className="rounded-lg p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                  >
+                    ✕
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setPayingOrderId(null)}
-                  className="rounded-lg p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-                >
-                  ✕
-                </button>
-              </div>
 
-              <div className="flex items-center justify-between bg-secondary/40 p-3 rounded-xl text-sm">
-                <span className="text-muted-foreground">Amount to pay:</span>
-                <span className="font-display text-xl font-bold text-primary">
-                  {formatETB(targetOrder.total)}
-                </span>
-              </div>
+                <div className="flex items-center justify-between bg-secondary/40 p-3 rounded-xl text-sm">
+                  <span className="text-muted-foreground">Amount to pay:</span>
+                  <span className="font-display text-xl font-bold text-primary">
+                    {formatETB(targetOrder.total)}
+                  </span>
+                </div>
 
-              <div className="space-y-2.5">
-                <Label className="text-xs font-semibold">Select Payment Method</Label>
-                <div className="grid gap-2">
-                  {[
-                    { id: "telebirr" as const, name: "Telebirr Mobile", detail: "Till: 0911 234 567", icon: Smartphone },
-                    { id: "cbe" as const, name: "CBE Birr", detail: "Account: 1000 2345 67890", icon: CreditCard },
-                    { id: "cash" as const, name: "Cash / In-Person", detail: "Pay with server or delivery courier", icon: Banknote },
-                  ].map((m) => (
-                    <label
-                      key={m.id}
-                      className={cn(
-                        "flex items-center justify-between p-3 rounded-xl border text-xs cursor-pointer transition-all",
-                        payMethod === m.id ? "border-primary bg-accent/60 ring-1 ring-primary" : "border-border hover:bg-secondary/40",
-                      )}
-                    >
-                      <div className="flex items-center gap-2.5">
-                        <input
-                          type="radio"
-                          name="dash-pay"
-                          checked={payMethod === m.id}
-                          onChange={() => setPayMethod(m.id)}
-                          className="accent-[var(--primary)]"
-                        />
-                        <div>
-                          <p className="font-semibold text-foreground">{m.name}</p>
-                          <p className="text-[11px] text-muted-foreground">{m.detail}</p>
+                <div className="space-y-2.5">
+                  <Label className="text-xs font-semibold">Select Payment Method</Label>
+                  <div className="grid gap-2">
+                    {[
+                      {
+                        id: "telebirr" as const,
+                        name: "Telebirr Mobile",
+                        detail: "Till: 0911 234 567",
+                        icon: Smartphone,
+                      },
+                      {
+                        id: "cbe" as const,
+                        name: "CBE Birr",
+                        detail: "Account: 1000 2345 67890",
+                        icon: CreditCard,
+                      },
+                      {
+                        id: "cash" as const,
+                        name: "Cash / In-Person",
+                        detail: "Pay with server or delivery courier",
+                        icon: Banknote,
+                      },
+                    ].map((m) => (
+                      <label
+                        key={m.id}
+                        className={cn(
+                          "flex items-center justify-between p-3 rounded-xl border text-xs cursor-pointer transition-all",
+                          payMethod === m.id
+                            ? "border-primary bg-accent/60 ring-1 ring-primary"
+                            : "border-border hover:bg-secondary/40",
+                        )}
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <input
+                            type="radio"
+                            name="dash-pay"
+                            checked={payMethod === m.id}
+                            onChange={() => setPayMethod(m.id)}
+                            className="accent-[var(--primary)]"
+                          />
+                          <div>
+                            <p className="font-semibold text-foreground">{m.name}</p>
+                            <p className="text-[11px] text-muted-foreground">{m.detail}</p>
+                          </div>
                         </div>
-                      </div>
-                      <m.icon className="size-4 text-primary" />
-                    </label>
-                  ))}
+                        <m.icon className="size-4 text-primary" />
+                      </label>
+                    ))}
+                  </div>
                 </div>
-              </div>
 
-              {payMethod !== "cash" && (
-                <div className="space-y-1.5">
-                  <Label htmlFor="dash-tx" className="text-xs">Transaction Reference / Code (Optional)</Label>
-                  <Input
-                    id="dash-tx"
-                    value={payTxRef}
-                    onChange={(e) => setPayTxRef(e.target.value)}
-                    placeholder="e.g. TXN-10293847"
-                    className="h-8 text-xs font-mono"
-                  />
+                {payMethod !== "cash" && (
+                  <div className="space-y-1.5">
+                    <Label htmlFor="dash-tx" className="text-xs">
+                      Transaction Reference / Code (Optional)
+                    </Label>
+                    <Input
+                      id="dash-tx"
+                      value={payTxRef}
+                      onChange={(e) => setPayTxRef(e.target.value)}
+                      placeholder="e.g. TXN-10293847"
+                      className="h-8 text-xs font-mono"
+                    />
+                  </div>
+                )}
+
+                <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
+                  <Button variant="ghost" size="sm" onClick={() => setPayingOrderId(null)}>
+                    Cancel
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={() => void handleSettlePayment(targetOrder)}
+                    disabled={submittingPayment}
+                    className="font-semibold"
+                  >
+                    <CheckCircle2 className="size-3.5 mr-1.5" />
+                    {submittingPayment ? "Confirming…" : `Confirm ${formatETB(targetOrder.total)}`}
+                  </Button>
                 </div>
-              )}
-
-              <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
-                <Button variant="ghost" size="sm" onClick={() => setPayingOrderId(null)}>
-                  Cancel
-                </Button>
-                <Button
-                  size="sm"
-                  onClick={() => void handleSettlePayment(targetOrder)}
-                  disabled={submittingPayment}
-                  className="font-semibold"
-                >
-                  <CheckCircle2 className="size-3.5 mr-1.5" />
-                  {submittingPayment ? "Confirming…" : `Confirm ${formatETB(targetOrder.total)}`}
-                </Button>
               </div>
             </div>
-          </div>
-        );
-      })()}
+          );
+        })()}
 
       {/* 3. ORDER HISTORY & FILTER TABS */}
       <section aria-labelledby="history-title" className="space-y-4">
@@ -598,7 +1033,9 @@ function AccountPage() {
               onClick={() => setFilter("all")}
               className={cn(
                 "px-3 py-1 rounded-md font-medium transition-colors",
-                filter === "all" ? "bg-background shadow-xs text-foreground font-semibold" : "text-muted-foreground hover:text-foreground",
+                filter === "all"
+                  ? "bg-background shadow-xs text-foreground font-semibold"
+                  : "text-muted-foreground hover:text-foreground",
               )}
             >
               All ({orders.length})
@@ -608,7 +1045,9 @@ function AccountPage() {
               onClick={() => setFilter("active")}
               className={cn(
                 "px-3 py-1 rounded-md font-medium transition-colors",
-                filter === "active" ? "bg-background shadow-xs text-foreground font-semibold" : "text-muted-foreground hover:text-foreground",
+                filter === "active"
+                  ? "bg-background shadow-xs text-foreground font-semibold"
+                  : "text-muted-foreground hover:text-foreground",
               )}
             >
               Active ({activeOrders.length})
@@ -618,7 +1057,9 @@ function AccountPage() {
               onClick={() => setFilter("completed")}
               className={cn(
                 "px-3 py-1 rounded-md font-medium transition-colors",
-                filter === "completed" ? "bg-background shadow-xs text-foreground font-semibold" : "text-muted-foreground hover:text-foreground",
+                filter === "completed"
+                  ? "bg-background shadow-xs text-foreground font-semibold"
+                  : "text-muted-foreground hover:text-foreground",
               )}
             >
               Past ({pastOrders.length})
@@ -626,9 +1067,11 @@ function AccountPage() {
           </div>
         </div>
 
-        {loading ? (
+        {loadingOrders ? (
           <div className="surface-card py-16 text-center">
-            <p className="text-sm text-muted-foreground animate-pulse">Syncing orders with persistent database…</p>
+            <p className="text-sm text-muted-foreground animate-pulse">
+              Syncing orders with persistent database…
+            </p>
           </div>
         ) : filteredOrders.length === 0 ? (
           <EmptyState
@@ -741,11 +1184,16 @@ function AccountPage() {
       </section>
 
       {/* 4. SAVED LOCATIONS & PROFILE INFO */}
-      <section aria-labelledby="profile-details-title" className="grid gap-6 md:grid-cols-2 pt-4 border-t border-border">
+      <section
+        aria-labelledby="profile-details-title"
+        className="grid gap-6 md:grid-cols-2 pt-4 border-t border-border"
+      >
         <div className="surface-card p-6 space-y-3">
           <div className="flex items-center gap-2 text-primary font-semibold">
             <User className="size-4" />
-            <h3 id="profile-details-title" className="font-display text-base">Customer Details</h3>
+            <h3 id="profile-details-title" className="font-display text-base">
+              Customer Details
+            </h3>
           </div>
           <p className="text-sm">
             <span className="text-muted-foreground">Name: </span>
@@ -756,7 +1204,8 @@ function AccountPage() {
             <strong className="text-foreground">{profile?.phone || "No phone linked"}</strong>
           </p>
           <p className="text-xs text-muted-foreground pt-1">
-            Details are automatically preserved during checkout for faster dining and delivery orders.
+            Details are automatically preserved during checkout for faster dining and delivery
+            orders.
           </p>
         </div>
 
@@ -776,7 +1225,8 @@ function AccountPage() {
             </ul>
           ) : (
             <p className="text-xs text-muted-foreground">
-              No saved addresses yet. When you place delivery orders, your locations will be recorded here.
+              No saved addresses yet. When you place delivery orders, your locations will be
+              recorded here.
             </p>
           )}
         </div>

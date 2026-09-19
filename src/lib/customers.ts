@@ -1,18 +1,34 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import type { Order, OrderItem, OrderMethod, OrderStatus } from "./orders";
+import { supabase } from "./supabase";
 
 /**
  * Fetches all customer profiles with order history from the server API.
- * Routes through GET /api/customers → server/api.ts → serverSupabase (service-role).
- * The browser never touches Supabase directly for admin customer data.
+ * Routes through GET /api/customers → server/api.ts.
+ * Sends the authenticated admin/staff bearer token to satisfy server authorization and RLS.
  */
 export async function fetchAdminCustomers(): Promise<{
   data: DerivedCustomer[] | null;
   error: Error | null;
 }> {
   try {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    if (!session?.access_token) {
+      return {
+        data: null,
+        error: new Error("Authentication required: No active admin or staff session found."),
+      };
+    }
+
     const response = await fetch("/api/customers", {
       method: "GET",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${session.access_token}`,
+      },
     });
 
     if (!response.ok) {
@@ -65,8 +81,7 @@ export type DerivedCustomer = {
  * Formats monetary amounts in Ethiopian Birr (ETB).
  * Decoupled from menu-data to prevent unnecessary data dependencies.
  */
-export const formatETB = (amount: number): string =>
-  `${amount.toLocaleString("en-US")} ETB`;
+export const formatETB = (amount: number): string => `${amount.toLocaleString("en-US")} ETB`;
 
 /**
  * Normalizes phone numbers for reliable deduplication and search.
@@ -267,8 +282,7 @@ function normalizeCustomerRecord(rawCustomer: any): DerivedCustomer {
 
   const fallbackDate = rawCustomer.created_at || new Date().toISOString();
   const lastOrderDate = normalizedOrders[0]?.createdAt || fallbackDate;
-  const firstOrderDate =
-    normalizedOrders[normalizedOrders.length - 1]?.createdAt || fallbackDate;
+  const firstOrderDate = normalizedOrders[normalizedOrders.length - 1]?.createdAt || fallbackDate;
   const lastOrderStatus: OrderStatus = normalizedOrders[0]?.status || "received";
 
   const preferredMethod: OrderMethod = derivePreferredMethod(normalizedOrders);

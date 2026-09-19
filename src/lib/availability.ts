@@ -32,7 +32,8 @@ export async function fetchAvailabilityProducts(): Promise<{
 }> {
   try {
     const { data, error } = await (supabase.from("products" as any) as any)
-      .select(`
+      .select(
+        `
         id,
         name,
         is_available,
@@ -42,7 +43,8 @@ export async function fetchAvailabilityProducts(): Promise<{
           name,
           slug
         )
-      `)
+      `,
+      )
       .order("name", { ascending: true });
 
     if (error) {
@@ -54,10 +56,7 @@ export async function fetchAvailabilityProducts(): Promise<{
   } catch (err: any) {
     return {
       data: null,
-      error:
-        err instanceof Error
-          ? err
-          : new Error("Failed to load availability products"),
+      error: err instanceof Error ? err : new Error("Failed to load availability products"),
     };
   }
 }

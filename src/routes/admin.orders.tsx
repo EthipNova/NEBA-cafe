@@ -71,7 +71,8 @@ export const Route = createFileRoute("/admin/orders")({
       { title: "Live Orders & Kitchen Tracking — NEBA Café Admin" },
       {
         name: "description",
-        content: "Real-time order management, kitchen tracking, and delivery fulfillment for NEBA Café.",
+        content:
+          "Real-time order management, kitchen tracking, and delivery fulfillment for NEBA Café.",
       },
       { name: "robots", content: "noindex" },
     ],
@@ -81,44 +82,45 @@ export const Route = createFileRoute("/admin/orders")({
 
 type ViewMode = "board" | "table";
 
-const STATUS_COLUMNS: { status: OrderStatus; label: string; description: string; color: string }[] = [
-  {
-    status: "received",
-    label: "New / Received",
-    description: "Orders awaiting kitchen acknowledgement",
-    color: "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/30",
-  },
-  {
-    status: "confirmed",
-    label: "Confirmed",
-    description: "Accepted orders queued for cooking",
-    color: "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/30",
-  },
-  {
-    status: "preparing",
-    label: "In Kitchen",
-    description: "Currently being prepared by the kitchen team",
-    color: "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30",
-  },
-  {
-    status: "ready",
-    label: "Ready for Pickup",
-    description: "Cooked and ready on the counter",
-    color: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30",
-  },
-  {
-    status: "out-for-delivery",
-    label: "Out for Delivery",
-    description: "Assigned to courier / in transit",
-    color: "bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/30",
-  },
-  {
-    status: "completed",
-    label: "Completed",
-    description: "Delivered or served successfully",
-    color: "bg-success/15 text-success border-success/30",
-  },
-];
+const STATUS_COLUMNS: { status: OrderStatus; label: string; description: string; color: string }[] =
+  [
+    {
+      status: "received",
+      label: "New / Received",
+      description: "Orders awaiting kitchen acknowledgement",
+      color: "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/30",
+    },
+    {
+      status: "confirmed",
+      label: "Confirmed",
+      description: "Accepted orders queued for cooking",
+      color: "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/30",
+    },
+    {
+      status: "preparing",
+      label: "In Kitchen",
+      description: "Currently being prepared by the kitchen team",
+      color: "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30",
+    },
+    {
+      status: "ready",
+      label: "Ready for Pickup",
+      description: "Cooked and ready on the counter",
+      color: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30",
+    },
+    {
+      status: "out-for-delivery",
+      label: "Out for Delivery",
+      description: "Assigned to courier / in transit",
+      color: "bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/30",
+    },
+    {
+      status: "completed",
+      label: "Completed",
+      description: "Delivered or served successfully",
+      color: "bg-success/15 text-success border-success/30",
+    },
+  ];
 
 function getNextStatus(order: Order): OrderStatus | null {
   const flow = flowFor(order.method);
@@ -153,7 +155,10 @@ function getNextActionLabel(order: Order): string {
 function MethodBadge({ method }: { method: OrderMethod }) {
   if (method === "dine-in") {
     return (
-      <Badge variant="outline" className="gap-1 bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/30">
+      <Badge
+        variant="outline"
+        className="gap-1 bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/30"
+      >
         <Utensils className="size-3" />
         <span>Dine-in</span>
       </Badge>
@@ -161,14 +166,20 @@ function MethodBadge({ method }: { method: OrderMethod }) {
   }
   if (method === "takeaway") {
     return (
-      <Badge variant="outline" className="gap-1 bg-blue-500/10 text-blue-700 dark:text-blue-300 border-blue-500/30">
+      <Badge
+        variant="outline"
+        className="gap-1 bg-blue-500/10 text-blue-700 dark:text-blue-300 border-blue-500/30"
+      >
         <Store className="size-3" />
         <span>Takeaway</span>
       </Badge>
     );
   }
   return (
-    <Badge variant="outline" className="gap-1 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30">
+    <Badge
+      variant="outline"
+      className="gap-1 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30"
+    >
       <Truck className="size-3" />
       <span>Delivery</span>
     </Badge>
@@ -213,7 +224,9 @@ function AdminOrdersPage() {
   const loadData = async (isManual = false) => {
     if (isManual) setRefreshing(true);
     try {
-      const fetched = await fetchOrders();
+      const { data } = await supabase.auth.getSession();
+      const token = data?.session?.access_token;
+      const fetched = await fetchOrders({ token });
       setOrders(fetched);
     } catch (err) {
       console.warn("Failed to load admin orders from database:", err);
@@ -234,9 +247,9 @@ function AdminOrdersPage() {
     const channel = supabase
       .channel("admin-orders-realtime")
       .on(
-        "postgres_changes" as any,
+        "postgres_changes",
         { event: "*", schema: "public", table: "orders" },
-        (payload: any) => {
+        (payload: { eventType: string; new: { order_number?: string } }) => {
           if (payload.eventType === "INSERT") {
             toast.info(`New order placed: ${payload.new?.order_number || "Customer Order"}!`, {
               icon: "🔔",
@@ -245,6 +258,9 @@ function AdminOrdersPage() {
           void loadData();
         },
       )
+      .on("postgres_changes", { event: "*", schema: "public", table: "order_status_logs" }, () => {
+        void loadData();
+      })
       .subscribe();
 
     // Storage event for fallback multi-tab sync
@@ -273,9 +289,7 @@ function AdminOrdersPage() {
 
     setUpdatingId(order.id);
     // Optimistic UI update
-    setOrders((prev) =>
-      prev.map((o) => (o.id === order.id ? { ...o, status: next } : o)),
-    );
+    setOrders((prev) => prev.map((o) => (o.id === order.id ? { ...o, status: next } : o)));
 
     try {
       await apiUpdateOrderStatus(order.id, next);
@@ -291,9 +305,7 @@ function AdminOrdersPage() {
 
   const handleSetExplicitStatus = async (orderId: string, nextStatus: OrderStatus) => {
     setUpdatingId(orderId);
-    setOrders((prev) =>
-      prev.map((o) => (o.id === orderId ? { ...o, status: nextStatus } : o)),
-    );
+    setOrders((prev) => prev.map((o) => (o.id === orderId ? { ...o, status: nextStatus } : o)));
 
     try {
       await apiUpdateOrderStatus(orderId, nextStatus);
@@ -323,7 +335,9 @@ function AdminOrdersPage() {
       const matchesAddress = (o.customer?.address || "").toLowerCase().includes(q);
       const matchesItem = o.items.some((i) => i.name.toLowerCase().includes(q));
 
-      return matchesNum || matchesName || matchesPhone || matchesTable || matchesAddress || matchesItem;
+      return (
+        matchesNum || matchesName || matchesPhone || matchesTable || matchesAddress || matchesItem
+      );
     });
   }, [orders, searchQuery, methodFilter, statusFilter]);
 
@@ -332,12 +346,15 @@ function AdminOrdersPage() {
     ["received", "confirmed", "preparing", "ready"].includes(o.status),
   ).length;
   const inDeliveryCount = orders.filter((o) => o.status === "out-for-delivery").length;
-  const completedTodayCount = orders.filter((o) => ["delivered", "completed"].includes(o.status)).length;
+  const completedTodayCount = orders.filter((o) =>
+    ["delivered", "completed"].includes(o.status),
+  ).length;
   const todayRevenue = orders
     .filter((o) => o.paymentStatus === "paid")
     .reduce((sum, o) => sum + o.total, 0);
 
-  const selectedOrder = orders.find((o) => o.id === selectedOrderId || o.number === selectedOrderId) ?? null;
+  const selectedOrder =
+    orders.find((o) => o.id === selectedOrderId || o.number === selectedOrderId) ?? null;
 
   return (
     <div className="space-y-6">
@@ -624,7 +641,9 @@ function AdminOrdersPage() {
                           {/* Footer: Price + Quick Advance Button */}
                           <div className="flex items-center justify-between gap-2 border-t border-border/40 pt-2.5">
                             <div className="flex flex-col">
-                              <span className="text-[10px] text-muted-foreground uppercase">Total</span>
+                              <span className="text-[10px] text-muted-foreground uppercase">
+                                Total
+                              </span>
                               <span className="font-semibold text-sm text-primary">
                                 {formatETB(order.total)}
                               </span>
@@ -701,7 +720,8 @@ function AdminOrdersPage() {
                           {order.customer.name || "Guest Customer"}
                         </p>
                         <p className="text-[11px] text-muted-foreground">
-                          {order.customer.phone || (order.customer.table ? `Table ${order.customer.table}` : "")}
+                          {order.customer.phone ||
+                            (order.customer.table ? `Table ${order.customer.table}` : "")}
                         </p>
                       </div>
                     </TableCell>
@@ -769,7 +789,9 @@ function AdminOrdersPage() {
               <SheetDescription className="text-xs flex items-center gap-2">
                 <span>Placed {new Date(selectedOrder.createdAt).toLocaleString()}</span>
                 <span>·</span>
-                <span className="font-medium text-foreground capitalize">{selectedOrder.method}</span>
+                <span className="font-medium text-foreground capitalize">
+                  {selectedOrder.method}
+                </span>
               </SheetDescription>
             </SheetHeader>
 
@@ -803,7 +825,9 @@ function AdminOrdersPage() {
                     <span className="text-xs text-muted-foreground shrink-0">Override:</span>
                     <Select
                       value={selectedOrder.status}
-                      onValueChange={(val) => handleSetExplicitStatus(selectedOrder.id, val as OrderStatus)}
+                      onValueChange={(val) =>
+                        handleSetExplicitStatus(selectedOrder.id, val as OrderStatus)
+                      }
                     >
                       <SelectTrigger className="h-7 text-xs flex-1">
                         <SelectValue />
@@ -868,11 +892,44 @@ function AdminOrdersPage() {
                   )}
 
                   {selectedOrder.method === "delivery" && (
-                    <div className="col-span-2">
-                      <dt className="text-muted-foreground">Delivery Destination</dt>
-                      <dd className="font-medium text-foreground mt-0.5 flex items-start gap-1">
-                        <MapPin className="size-3.5 text-primary shrink-0 mt-0.5" />
-                        <span>{selectedOrder.customer.address || "No address specified"}</span>
+                    <div className="col-span-2 space-y-1">
+                      <dt className="text-muted-foreground">Delivery Destination & Distance</dt>
+                      <dd className="font-medium text-foreground mt-0.5 flex items-start justify-between gap-2">
+                        <div className="flex items-start gap-1.5">
+                          <MapPin className="size-3.5 text-primary shrink-0 mt-0.5" />
+                          <div>
+                            <p>{selectedOrder.customer.address || "No address specified"}</p>
+                            {selectedOrder.distanceKm !== null &&
+                              selectedOrder.distanceKm !== undefined && (
+                                <p className="text-[11px] text-muted-foreground mt-0.5">
+                                  Distance:{" "}
+                                  <strong className="text-foreground">
+                                    {selectedOrder.distanceKm.toFixed(1)} KM
+                                  </strong>
+                                  {" • "}
+                                  Fee:{" "}
+                                  <strong className="text-foreground">
+                                    {formatETB(selectedOrder.delivery)}
+                                  </strong>
+                                </p>
+                              )}
+                          </div>
+                        </div>
+
+                        {selectedOrder.customer.latitude !== null &&
+                          selectedOrder.customer.latitude !== undefined &&
+                          selectedOrder.customer.longitude !== null &&
+                          selectedOrder.customer.longitude !== undefined && (
+                            <a
+                              href={`https://www.google.com/maps/search/?api=1&query=${selectedOrder.customer.latitude},${selectedOrder.customer.longitude}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 text-[11px] font-semibold text-primary hover:underline shrink-0 bg-primary/10 px-2 py-1 rounded-md"
+                            >
+                              <ExternalLink className="size-3" />
+                              <span>View Map</span>
+                            </a>
+                          )}
                       </dd>
                     </div>
                   )}
@@ -887,7 +944,10 @@ function AdminOrdersPage() {
 
                 <div className="divide-y divide-border">
                   {selectedOrder.items.map((item, idx) => (
-                    <div key={idx} className="py-2.5 flex items-center justify-between gap-3 text-xs">
+                    <div
+                      key={idx}
+                      className="py-2.5 flex items-center justify-between gap-3 text-xs"
+                    >
                       <div>
                         <p className="font-medium text-foreground">{item.name}</p>
                         <p className="text-[11px] text-muted-foreground">
@@ -909,7 +969,12 @@ function AdminOrdersPage() {
                   </div>
                   {selectedOrder.delivery > 0 && (
                     <div className="flex justify-between text-muted-foreground">
-                      <dt>Delivery Fee</dt>
+                      <dt>
+                        Delivery Fee
+                        {selectedOrder.distanceKm !== null && selectedOrder.distanceKm !== undefined
+                          ? ` (${selectedOrder.distanceKm.toFixed(1)} KM)`
+                          : ""}
+                      </dt>
                       <dd>{formatETB(selectedOrder.delivery)}</dd>
                     </div>
                   )}

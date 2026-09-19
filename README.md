@@ -433,7 +433,7 @@ MENU
 
 Search menu...
 
-------------------------------------------------
+---
 
 Classic Burger
 Fresh beef patty, vegetables and special sauce
@@ -442,8 +442,7 @@ Fresh beef patty, vegetables and special sauce
 
 [Add to Cart]
 
-------------------------------------------------
-
+---
 
 Unavailable products should be visually clear.
 
@@ -489,7 +488,6 @@ Quantity
 
 [Add to Cart]
 
-
 14. CART
 
 Build a fully functional shopping cart.
@@ -498,19 +496,18 @@ Display:
 
 YOUR CART
 
-Classic Burger       x2       500 ETB
-French Fries         x1       100 ETB
+Classic Burger x2 500 ETB
+French Fries x1 100 ETB
 
------------------------------------
+---
 
-Subtotal                      600 ETB
-Discount                        0 ETB
-Delivery                        0 ETB
+Subtotal 600 ETB
+Discount 0 ETB
+Delivery 0 ETB
 
-TOTAL                         600 ETB
+TOTAL 600 ETB
 
 [Proceed to Checkout]
-
 
 Allow:
 
@@ -625,7 +622,6 @@ Payment Method
 
 [Pay 600 ETB]
 
-
 Never allow the frontend to independently declare payment success.
 
 Structure the application so the backend can verify payment results.
@@ -674,7 +670,6 @@ ORDER #1023
 
 ○ Completed
 
-
 For delivery:
 
 ✓ Order Received
@@ -684,7 +679,6 @@ For delivery:
 ● Out for Delivery
 ○ Delivered
 ○ Completed
-
 
 Use animated progress indicators.
 
@@ -958,8 +952,7 @@ Example:
 
 01 ───── 02 ───── 03 ───── 04 ───── 05
 
-WHAT?    DESIGN   ARCHITECT   BUILD   LAUNCH
-
+WHAT? DESIGN ARCHITECT BUILD LAUNCH
 
 When the user selects a stage:
 
@@ -1039,11 +1032,10 @@ Create an order-management interface.
 
 Use status columns:
 
-PENDING       CONFIRMED       PREPARING       READY
+PENDING CONFIRMED PREPARING READY
 
-#1024         #1021           #1020           #1018
-#1025         #1022           #1023           #1019
-
+#1024 #1021 #1020 #1018
+#1025 #1022 #1023 #1019
 
 Allow authorized staff to:
 
@@ -1097,13 +1089,12 @@ Create a quick availability interface.
 
 Example:
 
-PRODUCT             STATUS
+PRODUCT STATUS
 
-Classic Burger      ● Available
-Chicken Burger      ● Available
-Margherita Pizza    ○ Unavailable
-French Fries        ● Available
-
+Classic Burger ● Available
+Chicken Burger ● Available
+Margherita Pizza ○ Unavailable
+French Fries ● Available
 
 Use clear visual indicators.
 
@@ -1164,19 +1155,18 @@ Backend authorization must be authoritative.
 Structure the application so it can support:
 
 CUSTOMER FRONTEND
-        ↓
+↓
 REST API
-        ↓
+↓
 BACKEND
-        ↓
+↓
 BUSINESS LOGIC
-        ↓
+↓
 POSTGRESQL DATABASE
-        ↓
+↓
 EXTERNAL SERVICES
-   ├── Payment
-   └── Notifications
-
+├── Payment
+└── Notifications
 
 Keep frontend and backend clearly separated.
 
@@ -1241,7 +1231,6 @@ payments
 addresses
 promotions
 notifications
-
 
 Use:
 
@@ -1426,11 +1415,9 @@ Contact
 [Cart]
 [Account]
 
-
 If admin/staff is authenticated:
 
 Admin Dashboard
-
 
 Mobile navigation should use a clean mobile menu.
 
@@ -1477,33 +1464,32 @@ Suggested structure:
 project/
 
 ├── frontend/
-│   ├── components/
-│   ├── pages/
-│   ├── layouts/
-│   ├── hooks/
-│   ├── services/
-│   ├── stores/
-│   └── types/
+│ ├── components/
+│ ├── pages/
+│ ├── layouts/
+│ ├── hooks/
+│ ├── services/
+│ ├── stores/
+│ └── types/
 │
 ├── backend/
-│   ├── auth/
-│   ├── users/
-│   ├── products/
-│   ├── categories/
-│   ├── cart/
-│   ├── orders/
-│   ├── payments/
-│   ├── promotions/
-│   ├── notifications/
-│   └── administration/
+│ ├── auth/
+│ ├── users/
+│ ├── products/
+│ ├── categories/
+│ ├── cart/
+│ ├── orders/
+│ ├── payments/
+│ ├── promotions/
+│ ├── notifications/
+│ └── administration/
 │
 ├── database/
-│   └── migrations/
+│ └── migrations/
 │
 ├── tests/
 │
 └── documentation/
-
 
 The exact structure may be adjusted according to the selected framework.
 
@@ -1511,30 +1497,29 @@ The exact structure may be adjusted according to the selected framework.
 
 Design REST APIs such as:
 
-GET    /api/products
-GET    /api/products/:id
-POST   /api/products
-PATCH  /api/products/:id
+GET /api/products
+GET /api/products/:id
+POST /api/products
+PATCH /api/products/:id
 DELETE /api/products/:id
 
-GET    /api/categories
-POST   /api/categories
-PATCH  /api/categories/:id
+GET /api/categories
+POST /api/categories
+PATCH /api/categories/:id
 
-POST   /api/auth/register
-POST   /api/auth/login
-POST   /api/auth/logout
+POST /api/auth/register
+POST /api/auth/login
+POST /api/auth/logout
 
-POST   /api/orders
-GET    /api/orders/my-orders
-GET    /api/orders/:id
-PATCH  /api/orders/:id/status
+POST /api/orders
+GET /api/orders/my-orders
+GET /api/orders/:id
+PATCH /api/orders/:id/status
 
-POST   /api/payments
-GET    /api/payments/:id
+POST /api/payments
+GET /api/payments/:id
 
-GET    /api/admin/dashboard
-
+GET /api/admin/dashboard
 
 The exact endpoints can be adjusted during implementation.
 
@@ -1597,78 +1582,74 @@ Mobile/tablet/desktop.
 The application should support this complete journey:
 
 Home
- ↓
+↓
 Menu
- ↓
+↓
 Product
- ↓
+↓
 Add to Cart
- ↓
+↓
 Cart
- ↓
+↓
 Checkout
- ↓
+↓
 Ordering Method
- ↓
+↓
 Payment
- ↓
+↓
 Order Confirmation
- ↓
+↓
 Order Tracking
-
 
 This should be treated as the most important customer flow.
 
 49. STAFF FLOW
 
 Login
- ↓
+↓
 Staff Dashboard
- ↓
+↓
 Incoming Order
- ↓
+↓
 Confirm
- ↓
+↓
 Preparing
- ↓
+↓
 Ready
- ↓
+↓
 Completed
-
 
 For delivery:
 
 Ready
- ↓
+↓
 Out for Delivery
- ↓
+↓
 Delivered
- ↓
+↓
 Completed
-
 
 50. ADMIN FLOW
 
 Login
- ↓
+↓
 Admin Dashboard
- ↓
+↓
 Products
- ↓
+↓
 Categories
- ↓
+↓
 Availability
- ↓
+↓
 Orders
- ↓
+↓
 Payments
- ↓
+↓
 Promotions
- ↓
+↓
 Users
- ↓
+↓
 Settings
-
 
 51. PRODUCTION-READY REQUIREMENTS
 
@@ -2095,23 +2076,22 @@ Production preparation
 For every feature use:
 
 Requirement
- ↓
+↓
 Task
- ↓
+↓
 Feature Branch
- ↓
+↓
 Implementation
- ↓
+↓
 Local Testing
- ↓
+↓
 Code Review
- ↓
+↓
 Integration
- ↓
+↓
 Integration Testing
- ↓
+↓
 Merge
-
 
 Use meaningful Git commits.
 
@@ -2122,7 +2102,6 @@ feat: add cart functionality
 feat: implement order creation
 fix: prevent unavailable products from being ordered
 feat: add order tracking
-
 
 63. FINAL WEBSITE EXPERIENCE
 

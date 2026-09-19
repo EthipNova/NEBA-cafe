@@ -1,6 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 
-export type UserRole = "ADMIN" | "STAFF";
+export type UserRole = "ADMIN" | "STAFF" | "CUSTOMER";
 
 export type DbUser = {
   id: string;
@@ -9,6 +9,16 @@ export type DbUser = {
   full_name?: string | null;
   phone?: string | null;
   avatar_url?: string | null;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type DbCustomer = {
+  id: string;
+  user_id?: string | null;
+  name: string;
+  phone?: string | null;
+  email?: string | null;
   created_at?: string;
   updated_at?: string;
 };
@@ -22,6 +32,12 @@ export type Database = {
         Update: Partial<DbUser>;
         Relationships: [];
       };
+      customers: {
+        Row: DbCustomer;
+        Insert: DbCustomer;
+        Update: Partial<DbCustomer>;
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
     Functions: Record<string, never>;
@@ -32,17 +48,17 @@ export type Database = {
   };
 };
 
-const envMeta = import.meta.env;
+const envMeta = typeof import.meta !== "undefined" && import.meta ? import.meta.env : undefined;
 const envProc = typeof process !== "undefined" ? process.env : undefined;
 
 const supabaseUrl =
-  (envMeta["VITE_SUPABASE_URL"] as string | undefined) ||
-  (envProc ? envProc["SUPABASE_URL"] : undefined) ||
+  (envMeta ? (envMeta["VITE_SUPABASE_URL"] as string | undefined) : undefined) ||
+  (envProc ? envProc["VITE_SUPABASE_URL"] || envProc["SUPABASE_URL"] : undefined) ||
   "";
 
 const supabaseKey =
-  (envMeta["VITE_SUPABASE_PUBLISHABLE_KEY"] as string | undefined) ||
-  (envProc ? envProc["SUPABASE_KEY"] : undefined) ||
+  (envMeta ? (envMeta["VITE_SUPABASE_PUBLISHABLE_KEY"] as string | undefined) : undefined) ||
+  (envProc ? envProc["VITE_SUPABASE_PUBLISHABLE_KEY"] || envProc["SUPABASE_KEY"] : undefined) ||
   "";
 
 if (!supabaseUrl || !supabaseKey) {
@@ -51,28 +67,11 @@ if (!supabaseUrl || !supabaseKey) {
   );
 }
 
-// Clean up any legacy Supabase Auth tokens lingering in localStorage from previous configuration
-if (typeof window !== "undefined" && typeof window.localStorage !== "undefined") {
-  try {
-    for (let i = 0; i < window.localStorage.length; i++) {
-      const key = window.localStorage.key(i);
-      if (key && key.startsWith("sb-") && key.endsWith("-auth-token")) {
-        window.localStorage.removeItem(key);
-      }
-    }
-  } catch {
-    /* ignore storage access restrictions */
-  }
-}
-
 export { supabaseUrl, supabaseKey };
 
 export const supabase = createClient<Database>(supabaseUrl, supabaseKey, {
   auth: {
-    storage:
-      typeof window !== "undefined" && typeof window.sessionStorage !== "undefined"
-        ? window.sessionStorage
-        : undefined,
+    storage: typeof window !== "undefined" ? window.localStorage : undefined,
     persistSession: true,
     autoRefreshToken: true,
     detectSessionInUrl: true,

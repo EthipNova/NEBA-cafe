@@ -1,7 +1,9 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import {
+  AlertTriangle,
   Banknote,
   Check,
+  CheckCircle2,
   Clock,
   CreditCard,
   MapPin,
@@ -15,24 +17,33 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import type { Session } from "@supabase/supabase-js";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { EmptyState, Section } from "@/components/site/Section";
+import { LocationPicker } from "@/components/site/LocationPicker";
 import { useCart } from "@/lib/cart";
 import { formatETB, getProduct } from "@/lib/menu-data";
-import { buildOrder, methodLabels, saveOrder, type OrderMethod } from "@/lib/orders";
-import { createOrder as apiCreateOrder, fetchSettings } from "@/services/api";
+import { methodLabels, saveOrder, type OrderMethod } from "@/lib/orders";
+import { createOrder as apiCreateOrder, fetchCustomerProfile, fetchSettings } from "@/services/api";
+import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
+import {
+  calculateDeliveryFee,
+  calculateHaversineDistance,
+  isValidCoordinate,
+} from "@/lib/distance";
+import { DEFAULT_SETTINGS, type NebaSettings } from "@/lib/settings";
 
 export const Route = createFileRoute("/checkout")({
   loader: async () => {
     try {
       const settings = await fetchSettings();
-      return { deliveryFee: settings.deliveryFee };
+      return { settings };
     } catch {
-      return { deliveryFee: 90 };
+      return { settings: DEFAULT_SETTINGS };
     }
   },
   head: () => ({
@@ -59,7 +70,11 @@ function Checkout() {
   const navigate = useNavigate();
   const loaderData = Route.useLoaderData();
   const { lines, subtotal, clear } = useCart();
-  const [deliveryFee, setDeliveryFee] = useState<number>(loaderData?.deliveryFee ?? 90);
+  const [settings, setSettings] = useState<NebaSettings>(loaderData?.settings || DEFAULT_SETTINGS);
+  const [deliveryLocation, setDeliveryLocation] = useState<{
+    latitude: number;
+    longitude: number;
+  } | null>(null);
   const [step, setStep] = useState(0);
   const [method, setMethod] = useState<OrderMethod>("dine-in");
   const [form, setForm] = useState({ name: "", phone: "", table: "", address: "" });
@@ -67,14 +82,138 @@ function Checkout() {
   const [payment, setPayment] = useState<"telebirr" | "cbe" | "cash">("telebirr");
   const [transactionRef, setTransactionRef] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [session, setSession] = useState<Session | null>(null);
+  const [authenticatedCustomerName, setAuthenticatedCustomerName] = useState<string | null>(null);
 
   useEffect(() => {
     fetchSettings()
       .then((s) => {
-        if (s?.deliveryFee !== undefined) setDeliveryFee(s.deliveryFee);
+        if (s) setSettings(s);
       })
       .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    let active = true;
+
+    const loadProfile = async (s: Session) => {
+      try {
+        const profile = await fetchCustomerProfile();
+        if (!active) return;
+        const meta = (s.user.user_metadata || {}) as Record<string, unknown>;
+        const name =
+          profile?.customer?.name ||
+          profile?.user?.full_name ||
+          (typeof meta["full_name"] === "string" ? meta["full_name"] : "") ||
+          (typeof meta["name"] === "string" ? meta["name"] : "") ||
+          "";
+        const phone =
+          profile?.customer?.phone ||
+          profile?.user?.phone ||
+          (typeof meta["phone"] === "string" ? meta["phone"] : "") ||
+          "";
+
+        if (name) {
+          setAuthenticatedCustomerName(name);
+        } else if (s.user.email) {
+          setAuthenticatedCustomerName(s.user.email);
+        }
+
+        setForm((prev) => ({
+          ...prev,
+          name: prev.name || name,
+          phone: prev.phone || phone,
+        }));
+      } catch {
+        if (!active) return;
+        const meta = (s.user.user_metadata || {}) as Record<string, unknown>;
+        const name =
+          (typeof meta["full_name"] === "string" ? meta["full_name"] : "") ||
+          (typeof meta["name"] === "string" ? meta["name"] : "") ||
+          s.user.email ||
+          "";
+        const phone = typeof meta["phone"] === "string" ? meta["phone"] : "";
+        if (name) setAuthenticatedCustomerName(name);
+        setForm((prev) => ({
+          ...prev,
+          name: prev.name || name,
+          phone: prev.phone || phone,
+        }));
+      }
+    };
+
+    supabase.auth.getSession().then(({ data: { session: s } }) => {
+      if (!active) return;
+      setSession(s);
+      if (s) {
+        void loadProfile(s);
+      }
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, s) => {
+      if (!active) return;
+      setSession(s);
+      if (s) {
+        void loadProfile(s);
+      } else {
+        setAuthenticatedCustomerName(null);
+      }
+    });
+
+    return () => {
+      active = false;
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  // Delivery distance and pricing engine
+  const hasCafeCoords = isValidCoordinate(settings.cafeLatitude, settings.cafeLongitude);
+  const hasCustomerCoords =
+    deliveryLocation !== null &&
+    isValidCoordinate(deliveryLocation.latitude, deliveryLocation.longitude);
+
+  let deliveryDistanceKm: number | null = null;
+  let estimatedDeliveryFee = 0;
+  let isDeliveryEligible = false;
+  let deliveryEligibilityReason: string | null = null;
+
+  if (method === "delivery") {
+    if (settings.deliveryEnabled === false) {
+      isDeliveryEligible = false;
+      deliveryEligibilityReason =
+        "Delivery orders are currently disabled. Please choose Takeaway or Dine-in.";
+    } else if (!hasCafeCoords) {
+      isDeliveryEligible = false;
+      deliveryEligibilityReason =
+        "The café delivery location has not been configured yet. Customers cannot place delivery orders at this time. Please select Takeaway or Dine-in.";
+    } else if (!hasCustomerCoords) {
+      isDeliveryEligible = false;
+      deliveryEligibilityReason = "Please pinpoint your delivery location on the map.";
+    } else {
+      deliveryDistanceKm = calculateHaversineDistance(
+        settings.cafeLatitude!,
+        settings.cafeLongitude!,
+        deliveryLocation.latitude,
+        deliveryLocation.longitude,
+      );
+      const feeResult = calculateDeliveryFee(deliveryDistanceKm, settings, {
+        hasCafeCoordinates: true,
+      });
+      isDeliveryEligible = feeResult.eligible;
+      if (feeResult.eligible) {
+        estimatedDeliveryFee = feeResult.fee;
+      } else {
+        deliveryEligibilityReason =
+          feeResult.reason ||
+          `Selected location (${deliveryDistanceKm.toFixed(1)} km) exceeds our maximum delivery radius of ${settings.maxDeliveryDistanceKm} km.`;
+      }
+    }
+  }
+
+  const delivery = method === "delivery" ? estimatedDeliveryFee : 0;
+  const total = subtotal + delivery;
 
   const methodOptions: {
     value: OrderMethod;
@@ -97,13 +236,17 @@ function Checkout() {
     {
       value: "delivery",
       label: "Delivery",
-      text: `Delivered to your location (+${deliveryFee} ETB).`,
+      text:
+        settings.deliveryEnabled === false
+          ? "Delivery is currently disabled."
+          : !hasCafeCoords
+            ? "Café location pending configuration."
+            : hasCustomerCoords && isDeliveryEligible
+              ? `Delivered to your location (+${formatETB(estimatedDeliveryFee)} • ${deliveryDistanceKm?.toFixed(1)} km).`
+              : "Distance-based pricing (location pin required).",
       icon: Truck,
     },
   ];
-
-  const delivery = method === "delivery" ? deliveryFee : 0;
-  const total = subtotal + delivery;
 
   if (lines.length === 0) {
     return (
@@ -142,6 +285,18 @@ function Checkout() {
 
   const validateCurrentStep = (): boolean => {
     if (step === 0) {
+      if (method === "delivery") {
+        if (settings.deliveryEnabled === false) {
+          toast.error("Delivery orders are currently disabled. Please select Takeaway or Dine-in.");
+          return false;
+        }
+        if (!hasCafeCoords) {
+          toast.error(
+            "Delivery is temporarily unavailable because the café location has not been configured. Please choose Takeaway or Dine-in.",
+          );
+          return false;
+        }
+      }
       return true;
     }
 
@@ -163,8 +318,30 @@ function Checkout() {
         }
 
         if (method === "delivery") {
+          if (settings.deliveryEnabled === false) {
+            toast.error(
+              "Delivery orders are currently disabled. Please choose Takeaway or Dine-in.",
+            );
+            return false;
+          }
+          if (!hasCafeCoords) {
+            toast.error(
+              "Delivery is temporarily unavailable because the café location has not been configured. Please choose Takeaway or Dine-in.",
+            );
+            return false;
+          }
+          if (!hasCustomerCoords) {
+            newErrors.address = "Please select your delivery location on the map.";
+          } else if (!isDeliveryEligible) {
+            newErrors.address =
+              deliveryEligibilityReason ||
+              "Selected location is outside our delivery radius. Please select a closer location or choose Takeaway.";
+          }
+
           if (!form.address.trim()) {
-            newErrors.address = "Please enter your delivery address.";
+            newErrors.address =
+              newErrors.address ||
+              "Please enter building name, floor, landmark, or street address.";
           }
         }
       }
@@ -218,22 +395,22 @@ function Checkout() {
 
       // If user chose cash/in-person, payment is pending settlement upon delivery/table.
       // If mobile wallet, marked paid immediately or verified.
-      const initialPaymentStatus: "paid" | "pending" =
-        payment === "cash" ? "pending" : "paid";
+      const initialPaymentStatus: "paid" | "pending" = payment === "cash" ? "pending" : "paid";
 
+      // Client sends only order requirements. Monetary amounts and fees are authoritatively
+      // calculated on the server using canonical database prices and distance settings.
       const orderData = {
         lines: resolvedLines,
         method,
         paymentMethod: paymentMethodName,
         paymentStatus: initialPaymentStatus,
-        delivery,
-        discount: 0,
         customer: {
           name: form.name.trim() || (method === "dine-in" ? "Dine-in guest" : ""),
           phone: form.phone.trim(),
           ...(method === "dine-in" && form.table.trim() ? { table: form.table.trim() } : {}),
-          ...(method === "delivery" && form.address.trim()
-            ? { address: form.address.trim() }
+          ...(method === "delivery" && form.address.trim() ? { address: form.address.trim() } : {}),
+          ...(method === "delivery" && deliveryLocation
+            ? { latitude: deliveryLocation.latitude, longitude: deliveryLocation.longitude }
             : {}),
         },
       };
@@ -249,7 +426,7 @@ function Checkout() {
           : "Order placed! Payment pending upon delivery/service.",
       );
       void navigate({ to: "/order/$id", params: { id: order.id } });
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error("Checkout order creation error:", e);
       const errMsg = e instanceof Error ? e.message : "Failed to complete order. Please try again.";
       toast.error(`Order submission failed: ${errMsg}`);
@@ -333,11 +510,28 @@ function Checkout() {
             </div>
 
             {method === "delivery" && (
-              <div className="rounded-lg border border-primary/20 bg-primary/5 p-4 text-xs text-muted-foreground">
-                <p className="font-medium text-foreground">Delivery Notice</p>
-                <p className="mt-0.5">
-                  A flat delivery fee of {deliveryFee} ETB will be added to your order summary. You
-                  will provide your delivery address in the next step.
+              <div
+                className={cn(
+                  "rounded-xl border p-4 text-xs space-y-1.5",
+                  settings.deliveryEnabled === false || !hasCafeCoords
+                    ? "border-amber-500/30 bg-amber-500/10 text-amber-800 dark:text-amber-200"
+                    : "border-primary/20 bg-primary/5 text-muted-foreground",
+                )}
+              >
+                <div className="flex items-center gap-2 font-medium">
+                  {settings.deliveryEnabled === false || !hasCafeCoords ? (
+                    <AlertTriangle className="size-4 text-amber-500 shrink-0" />
+                  ) : (
+                    <Truck className="size-4 text-primary shrink-0" />
+                  )}
+                  <span className="text-foreground font-semibold">Delivery Information</span>
+                </div>
+                <p>
+                  {settings.deliveryEnabled === false
+                    ? "Delivery orders are currently disabled. Please select Takeaway or Dine-in."
+                    : !hasCafeCoords
+                      ? "Delivery is currently unavailable because the café location has not been configured. Please choose Takeaway or Dine-in."
+                      : `Delivery fee is calculated strictly by distance (${settings.pricePerKm} ETB/km, min ${settings.minDeliveryFee} ETB, max radius ${settings.maxDeliveryDistanceKm} km). You will pinpoint your exact location on an interactive map in the next step.`}
                 </p>
               </div>
             )}
@@ -369,6 +563,33 @@ function Checkout() {
                 </button>
               </div>
             </div>
+
+            {authenticatedCustomerName ? (
+              <div className="flex items-center justify-between gap-2 rounded-xl border border-primary/30 bg-primary/10 px-4 py-3 text-xs text-foreground">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="size-4 text-primary shrink-0" />
+                  <span>
+                    Ordering as{" "}
+                    <strong className="font-semibold text-primary">
+                      {authenticatedCustomerName}
+                    </strong>
+                  </span>
+                </div>
+                <Badge
+                  variant="secondary"
+                  className="text-[10px] uppercase tracking-wider font-semibold"
+                >
+                  Signed In
+                </Badge>
+              </div>
+            ) : (
+              <div className="flex items-center justify-between rounded-xl border border-border bg-secondary/30 px-4 py-2.5 text-xs text-muted-foreground">
+                <span>Guest Checkout — No account required</span>
+                <Link to="/account" className="text-primary hover:underline font-medium">
+                  Sign in for faster ordering
+                </Link>
+              </div>
+            )}
 
             {/* Dine-in fields */}
             {method === "dine-in" && (
@@ -476,27 +697,53 @@ function Checkout() {
                 </div>
 
                 {method === "delivery" && (
-                  <div className="space-y-1.5 pt-2">
-                    <Label htmlFor="address" className="text-sm font-medium">
-                      Delivery address <span className="text-destructive">*</span>
-                    </Label>
-                    <Input
-                      id="address"
-                      value={form.address}
-                      onChange={(e) => handleFieldChange("address", e.target.value)}
-                      placeholder="Street name, building, apartment, landmark"
-                      autoComplete="street-address"
-                      aria-invalid={!!errors.address}
-                      aria-describedby={errors.address ? "error-address" : undefined}
-                      className={cn(
-                        errors.address && "border-destructive focus-visible:ring-destructive",
-                      )}
+                  <div className="space-y-4 pt-2">
+                    <LocationPicker
+                      cafeLatitude={settings.cafeLatitude}
+                      cafeLongitude={settings.cafeLongitude}
+                      selectedLatitude={deliveryLocation?.latitude ?? null}
+                      selectedLongitude={deliveryLocation?.longitude ?? null}
+                      onLocationChange={(coords) => {
+                        setDeliveryLocation(coords);
+                        if (errors.address) {
+                          setErrors((prev) => {
+                            const next = { ...prev };
+                            delete next.address;
+                            return next;
+                          });
+                        }
+                      }}
+                      pricePerKm={settings.pricePerKm}
+                      minDeliveryFee={settings.minDeliveryFee}
+                      maxDeliveryDistanceKm={settings.maxDeliveryDistanceKm}
+                      roundingRule={settings.roundingRule}
+                      deliveryEnabled={settings.deliveryEnabled}
+                      disabled={submitting}
                     />
-                    {errors.address && (
-                      <p id="error-address" role="alert" className="text-xs text-destructive">
-                        {errors.address}
-                      </p>
-                    )}
+
+                    <div className="space-y-1.5">
+                      <Label htmlFor="address" className="text-sm font-medium">
+                        Building, floor, landmark & delivery notes{" "}
+                        <span className="text-destructive">*</span>
+                      </Label>
+                      <Input
+                        id="address"
+                        value={form.address}
+                        onChange={(e) => handleFieldChange("address", e.target.value)}
+                        placeholder="Building name, floor, landmark, nearby shop..."
+                        autoComplete="street-address"
+                        aria-invalid={!!errors.address}
+                        aria-describedby={errors.address ? "error-address" : undefined}
+                        className={cn(
+                          errors.address && "border-destructive focus-visible:ring-destructive",
+                        )}
+                      />
+                      {errors.address && (
+                        <p id="error-address" role="alert" className="text-xs text-destructive">
+                          {errors.address}
+                        </p>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>
@@ -583,11 +830,27 @@ function Checkout() {
                     <dd className="inline">{form.phone}</dd>
                   </div>
                 )}
-                {method === "delivery" && form.address && (
-                  <div className="sm:col-span-2">
-                    <dt className="inline font-medium text-foreground">Delivery address: </dt>
-                    <dd className="inline">{form.address}</dd>
-                  </div>
+                {method === "delivery" && (
+                  <>
+                    {form.address && (
+                      <div className="sm:col-span-2">
+                        <dt className="inline font-medium text-foreground">Delivery address: </dt>
+                        <dd className="inline">{form.address}</dd>
+                      </div>
+                    )}
+                    {deliveryDistanceKm !== null && (
+                      <div>
+                        <dt className="inline font-medium text-foreground">Distance: </dt>
+                        <dd className="inline">{deliveryDistanceKm.toFixed(1)} KM</dd>
+                      </div>
+                    )}
+                    <div>
+                      <dt className="inline font-medium text-foreground">Estimated Delivery: </dt>
+                      <dd className="inline font-semibold text-primary">
+                        {formatETB(estimatedDeliveryFee)}
+                      </dd>
+                    </div>
+                  </>
                 )}
               </dl>
             </div>
@@ -601,7 +864,9 @@ function Checkout() {
               <div className="flex justify-between">
                 <dt className="text-muted-foreground">Delivery fee</dt>
                 <dd className="font-medium">
-                  {delivery > 0 ? formatETB(delivery) : "Free (Dine-in / Takeaway)"}
+                  {method === "delivery"
+                    ? `${formatETB(estimatedDeliveryFee)}${deliveryDistanceKm !== null ? ` (${deliveryDistanceKm.toFixed(1)} KM)` : ""}`
+                    : "Free (Dine-in / Takeaway)"}
                 </dd>
               </div>
               <div className="flex justify-between">
@@ -621,7 +886,9 @@ function Checkout() {
           <div className="space-y-6">
             <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border pb-4">
               <div>
-                <h2 className="font-display text-xl font-semibold">Step 4 — Payment & Settlement</h2>
+                <h2 className="font-display text-xl font-semibold">
+                  Step 4 — Payment & Settlement
+                </h2>
                 <p className="mt-1 text-sm text-muted-foreground">
                   Verify your pending order details and authorize your payment method.
                 </p>
@@ -651,7 +918,10 @@ function Checkout() {
                 {lines.map((l) => {
                   const p = getProduct(l.productId);
                   return (
-                    <div key={l.productId} className="flex items-center justify-between py-2 text-xs sm:text-sm">
+                    <div
+                      key={l.productId}
+                      className="flex items-center justify-between py-2 text-xs sm:text-sm"
+                    >
                       <div className="flex items-center gap-2.5">
                         {p?.image ? (
                           <img
@@ -684,7 +954,9 @@ function Checkout() {
               <div className="rounded-lg border border-border/60 bg-background/80 p-3 text-xs">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-muted-foreground">
                   <div className="flex items-center gap-1.5">
-                    {method === "dine-in" && <Utensils className="size-3.5 text-primary shrink-0" />}
+                    {method === "dine-in" && (
+                      <Utensils className="size-3.5 text-primary shrink-0" />
+                    )}
                     {method === "takeaway" && <Store className="size-3.5 text-primary shrink-0" />}
                     {method === "delivery" && <Truck className="size-3.5 text-primary shrink-0" />}
                     <span>
@@ -695,7 +967,11 @@ function Checkout() {
                   </div>
                   <div className="flex items-center gap-1.5 sm:justify-end">
                     <Phone className="size-3.5 text-primary shrink-0" />
-                    <span>{form.name ? `${form.name} (${form.phone || "No phone"})` : form.phone || "Guest"}</span>
+                    <span>
+                      {form.name
+                        ? `${form.name} (${form.phone || "No phone"})`
+                        : form.phone || "Guest"}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -801,9 +1077,13 @@ function Checkout() {
 
                         {/* Optional Transaction reference input for mobile payments */}
                         {isSelected && option.id !== "cash" && (
-                          <div className="mt-3 pt-3 border-t border-border/40 space-y-1.5" onClick={(e) => e.stopPropagation()}>
+                          <div
+                            className="mt-3 pt-3 border-t border-border/40 space-y-1.5"
+                            onClick={(e) => e.stopPropagation()}
+                          >
                             <Label htmlFor="tx-ref" className="text-xs font-medium text-foreground">
-                              Transaction Reference / Confirmation Code <span className="text-muted-foreground">(optional)</span>
+                              Transaction Reference / Confirmation Code{" "}
+                              <span className="text-muted-foreground">(optional)</span>
                             </Label>
                             <Input
                               id="tx-ref"
@@ -824,7 +1104,8 @@ function Checkout() {
             <div className="rounded-lg border border-border bg-muted/30 p-3.5 text-xs text-muted-foreground flex items-center gap-2">
               <ShieldCheck className="size-4 text-primary shrink-0" />
               <span>
-                All orders are saved to the persistent café database. Status updates reflect live kitchen operations in real-time.
+                All orders are saved to the persistent café database. Status updates reflect live
+                kitchen operations in real-time.
               </span>
             </div>
           </div>
@@ -841,7 +1122,14 @@ function Checkout() {
           </Button>
 
           {step < steps.length - 1 ? (
-            <Button onClick={next}>Continue</Button>
+            <Button
+              onClick={next}
+              disabled={
+                step === 1 && method === "delivery" && (!hasCustomerCoords || !isDeliveryEligible)
+              }
+            >
+              Continue
+            </Button>
           ) : (
             <Button onClick={pay} disabled={submitting}>
               <CreditCard className="size-4" />

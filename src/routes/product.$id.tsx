@@ -27,7 +27,10 @@ export const Route = createFileRoute("/product/$id")({
   head: ({ loaderData }) => {
     if (!loaderData) {
       return {
-        meta: [{ title: "Product unavailable — NEBA Café" }, { name: "robots", content: "noindex" }],
+        meta: [
+          { title: "Product unavailable — NEBA Café" },
+          { name: "robots", content: "noindex" },
+        ],
       };
     }
     const { product } = loaderData;
@@ -56,7 +59,11 @@ function ProductPage() {
           Menu
         </Link>
         <span className="px-2">/</span>
-        <Link to="/menu/$category" params={{ category: product.categorySlug }} className="hover:text-foreground">
+        <Link
+          to="/menu/$category"
+          params={{ category: product.categorySlug }}
+          className="hover:text-foreground"
+        >
           {product.categorySlug}
         </Link>
       </nav>

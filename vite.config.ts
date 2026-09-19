@@ -58,7 +58,7 @@ function apiDevMiddleware(): Plugin {
       const root = server.config?.root ?? process.cwd();
       loadEnvIntoProcess(root);
 
-      const middleware = async (req: any, res: any, next: any) => {
+      const middleware: import("vite").Connect.NextHandleFunction = async (req, res, next) => {
         const url = req.url ?? "";
         if (!url.startsWith("/api/") && url !== "/api") {
           return next();
@@ -99,12 +99,12 @@ function apiDevMiddleware(): Plugin {
           }
 
           const reqInit: RequestInit = {
-            method: req.method,
+            method: req.method || "GET",
             headers,
           };
           if (bodyBuffer && bodyBuffer.length > 0) {
             reqInit.body = new Uint8Array(bodyBuffer);
-            // @ts-ignore
+            // @ts-expect-error duplex is a valid RequestInit extension in Node 18+ fetch
             reqInit.duplex = "half";
           }
 
@@ -133,6 +133,9 @@ function apiDevMiddleware(): Plugin {
   };
 }
 
+const nitroPreset =
+  process.env["NITRO_PRESET"] || (process.env["VERCEL"] ? "vercel" : undefined);
+
 export default defineConfig({
   plugins: [apiDevMiddleware()],
   vite: {
@@ -140,6 +143,7 @@ export default defineConfig({
     // Restrict client-side exposed env vars so SUPABASE_SERVICE_ROLE_KEY is never leaked to client bundles
     envPrefix: ["VITE_"],
   },
+  ...(nitroPreset ? { nitro: { preset: nitroPreset } } : {}),
   tanstackStart: {
     // Redirect TanStack Start's bundled server entry to src/server.ts (our SSR error wrapper).
     // nitro/vite builds from this

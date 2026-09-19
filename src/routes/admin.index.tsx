@@ -9,10 +9,7 @@ import { fetchOrders, fetchProducts } from "@/services/api";
 
 export const Route = createFileRoute("/admin/")({
   head: () => ({
-    meta: [
-      { title: "Staff Dashboard — NEBA Café" },
-      { name: "robots", content: "noindex" },
-    ],
+    meta: [{ title: "Staff Dashboard — NEBA Café" }, { name: "robots", content: "noindex" }],
   }),
   component: AdminDashboard,
 });
@@ -57,17 +54,20 @@ function AdminDashboard() {
 
   // Compute live dynamic stats
   const totalOrdersCount = orderList.length > 0 ? orderList.length : demoBoardOrders.length;
-  const activeOrdersCount = orderList.length > 0
-    ? orderList.filter((o) =>
-        ["received", "confirmed", "preparing", "ready", "out-for-delivery"].includes(o.status),
-      ).length
-    : demoBoardOrders.filter((o) => o.status !== "completed").length;
-  const completedOrdersCount = orderList.length > 0
-    ? orderList.filter((o) => ["delivered", "completed"].includes(o.status)).length
-    : 18;
-  const totalRevenueNumber = orderList.length > 0
-    ? orderList.reduce((sum, o) => sum + (o.paymentStatus === "paid" ? o.total : 0), 0)
-    : 8450;
+  const activeOrdersCount =
+    orderList.length > 0
+      ? orderList.filter((o) =>
+          ["received", "confirmed", "preparing", "ready", "out-for-delivery"].includes(o.status),
+        ).length
+      : demoBoardOrders.filter((o) => o.status !== "completed").length;
+  const completedOrdersCount =
+    orderList.length > 0
+      ? orderList.filter((o) => ["delivered", "completed"].includes(o.status)).length
+      : 18;
+  const totalRevenueNumber =
+    orderList.length > 0
+      ? orderList.reduce((sum, o) => sum + (o.paymentStatus === "paid" ? o.total : 0), 0)
+      : 8450;
 
   const dynamicStats = [
     { label: "Total Orders", value: String(totalOrdersCount) },
@@ -77,23 +77,27 @@ function AdminDashboard() {
     { label: "Unavailable Items", value: String(unavailable.length) },
   ];
 
-  const recentOrdersToDisplay = orderList.length > 0
-    ? orderList.slice(0, 8).map((o) => ({
-        number: o.number,
-        customer: o.customer.name || (o.customer.table ? `Table ${o.customer.table}` : "Customer"),
-        method: o.method,
-        status: o.status,
-        total: o.total,
-        paymentStatus: o.paymentStatus,
-      }))
-    : demoBoardOrders;
+  const recentOrdersToDisplay =
+    orderList.length > 0
+      ? orderList.slice(0, 8).map((o) => ({
+          number: o.number,
+          customer:
+            o.customer.name || (o.customer.table ? `Table ${o.customer.table}` : "Customer"),
+          method: o.method,
+          status: o.status,
+          total: o.total,
+          paymentStatus: o.paymentStatus,
+        }))
+      : demoBoardOrders;
 
   return (
     <div className="space-y-8">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="font-display text-3xl font-semibold">Dashboard</h1>
-          <p className="text-sm text-muted-foreground">Live operational overview synced with database.</p>
+          <p className="text-sm text-muted-foreground">
+            Live operational overview synced with database.
+          </p>
         </div>
       </header>
 
@@ -129,7 +133,9 @@ function AdminDashboard() {
           </h2>
           <ul className="mt-4 space-y-3 text-sm">
             {unavailable.length === 0 ? (
-              <li className="text-xs text-muted-foreground">All menu items are currently available.</li>
+              <li className="text-xs text-muted-foreground">
+                All menu items are currently available.
+              </li>
             ) : (
               unavailable.slice(0, 5).map((p) => (
                 <li key={p.id} className="flex items-center justify-between">

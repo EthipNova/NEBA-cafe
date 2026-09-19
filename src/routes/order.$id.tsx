@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   Clock,
   CreditCard,
+  ExternalLink,
   MapPin,
   Phone,
   Receipt,
@@ -92,20 +93,12 @@ function OrderPage() {
     // Set up Realtime Supabase channel
     const channel = supabase
       .channel(`order-page-realtime-${id}`)
-      .on(
-        "postgres_changes" as any,
-        { event: "*", schema: "public", table: "orders" },
-        () => {
-          void load();
-        },
-      )
-      .on(
-        "postgres_changes" as any,
-        { event: "*", schema: "public", table: "payments" },
-        () => {
-          void load();
-        },
-      )
+      .on("postgres_changes" as any, { event: "*", schema: "public", table: "orders" }, () => {
+        void load();
+      })
+      .on("postgres_changes" as any, { event: "*", schema: "public", table: "payments" }, () => {
+        void load();
+      })
       .subscribe();
 
     // Multi-tab storage sync
@@ -279,7 +272,9 @@ function OrderPage() {
             <span
               className={cn(
                 "font-display text-lg sm:text-xl font-bold",
-                order.paymentStatus === "paid" ? "text-success" : "text-amber-600 dark:text-amber-400",
+                order.paymentStatus === "paid"
+                  ? "text-success"
+                  : "text-amber-600 dark:text-amber-400",
               )}
             >
               {formatETB(order.total)}
@@ -382,15 +377,47 @@ function OrderPage() {
                 </div>
               )}
 
-              {isDelivery && order.customer.address && (
-                <div className="sm:col-span-2 flex items-start gap-3 border-t border-border/50 pt-3">
-                  <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-secondary text-primary">
-                    <MapPin className="size-5" aria-hidden />
-                  </span>
-                  <div>
-                    <dt className="text-xs text-muted-foreground font-medium">Delivery address</dt>
-                    <dd className="font-medium text-foreground">{order.customer.address}</dd>
+              {isDelivery && (
+                <div className="sm:col-span-2 flex items-start justify-between gap-3 border-t border-border/50 pt-3">
+                  <div className="flex items-start gap-3">
+                    <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-secondary text-primary">
+                      <MapPin className="size-5" aria-hidden />
+                    </span>
+                    <div>
+                      <dt className="text-xs text-muted-foreground font-medium">
+                        Delivery address
+                      </dt>
+                      <dd className="font-medium text-foreground">
+                        {order.customer.address || "Standard delivery"}
+                      </dd>
+                      {order.distanceKm !== null && order.distanceKm !== undefined && (
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          Delivery distance:{" "}
+                          <strong className="text-foreground">
+                            {order.distanceKm.toFixed(1)} KM
+                          </strong>
+                          {" • "}
+                          Delivery fee:{" "}
+                          <strong className="text-foreground">{formatETB(order.delivery)}</strong>
+                        </p>
+                      )}
+                    </div>
                   </div>
+
+                  {order.customer.latitude !== null &&
+                    order.customer.latitude !== undefined &&
+                    order.customer.longitude !== null &&
+                    order.customer.longitude !== undefined && (
+                      <a
+                        href={`https://www.google.com/maps/search/?api=1&query=${order.customer.latitude},${order.customer.longitude}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline shrink-0 bg-primary/10 px-2.5 py-1.5 rounded-md transition-colors"
+                      >
+                        <ExternalLink className="size-3.5" />
+                        <span>View Map</span>
+                      </a>
+                    )}
                 </div>
               )}
             </dl>
@@ -459,7 +486,9 @@ function OrderPage() {
               <div className="flex justify-between">
                 <dt className="text-muted-foreground">Delivery fee</dt>
                 <dd className="font-medium text-foreground">
-                  {order.delivery > 0 ? formatETB(order.delivery) : "0 ETB (Free)"}
+                  {order.delivery > 0
+                    ? `${formatETB(order.delivery)}${order.distanceKm !== null && order.distanceKm !== undefined ? ` (${order.distanceKm.toFixed(1)} KM)` : ""}`
+                    : "0 ETB (Free)"}
                 </dd>
               </div>
 
@@ -506,14 +535,18 @@ function OrderPage() {
                   <div>
                     <p className="font-semibold">Action required: Complete your payment</p>
                     <p className="mt-0.5 text-muted-foreground">
-                      Your order is pending settlement of <strong className="text-foreground">{formatETB(order.total)}</strong>. Select a method below to finalize.
+                      Your order is pending settlement of{" "}
+                      <strong className="text-foreground">{formatETB(order.total)}</strong>. Select
+                      a method below to finalize.
                     </p>
                   </div>
                 </div>
 
                 {/* Method selector */}
                 <div className="space-y-2">
-                  <Label className="text-xs font-semibold text-foreground">Choose Payment Method</Label>
+                  <Label className="text-xs font-semibold text-foreground">
+                    Choose Payment Method
+                  </Label>
                   <div className="grid gap-2">
                     {[
                       {
@@ -569,7 +602,8 @@ function OrderPage() {
                 {paymentMethod !== "cash" && (
                   <div className="space-y-1.5">
                     <Label htmlFor="order-txref" className="text-xs font-medium text-foreground">
-                      Transaction Confirmation Reference <span className="text-muted-foreground">(optional)</span>
+                      Transaction Confirmation Reference{" "}
+                      <span className="text-muted-foreground">(optional)</span>
                     </Label>
                     <Input
                       id="order-txref"
@@ -601,14 +635,15 @@ function OrderPage() {
                 </div>
                 <div className="flex items-center justify-between">
                   <dt className="text-muted-foreground">Amount settled</dt>
-                  <dd className="font-bold text-success">
-                    {formatETB(order.total)}
-                  </dd>
+                  <dd className="font-bold text-success">{formatETB(order.total)}</dd>
                 </div>
                 <div className="flex items-center justify-between">
                   <dt className="text-muted-foreground">Payment status</dt>
                   <dd>
-                    <Badge variant="default" className="bg-success text-success-foreground hover:bg-success text-xs">
+                    <Badge
+                      variant="default"
+                      className="bg-success text-success-foreground hover:bg-success text-xs"
+                    >
                       Paid & Verified
                     </Badge>
                   </dd>
@@ -619,7 +654,8 @@ function OrderPage() {
             <div className="mt-4 rounded-lg bg-muted/30 p-3 text-[11px] leading-relaxed text-muted-foreground flex items-center gap-2">
               <ShieldCheck className="size-3.5 text-primary shrink-0" />
               <span>
-                Payment details are updated live in the café database and synchronized across your account dashboard.
+                Payment details are updated live in the café database and synchronized across your
+                account dashboard.
               </span>
             </div>
           </section>

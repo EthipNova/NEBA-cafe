@@ -1,4 +1,5 @@
 import { supabase } from "@/lib/supabase";
+import type { DeliveryRoundingRule } from "./distance";
 
 export type ThemePreference = "light" | "dark" | "system";
 
@@ -9,7 +10,16 @@ export type NebaSettings = {
   email: string;
   address: string;
   openingHours: string;
-  deliveryFee: number;
+  deliveryFee: number; // Legacy flat rate fallback
+
+  // Distance-Based Delivery Engine Configuration
+  cafeLatitude: number | null;
+  cafeLongitude: number | null;
+  pricePerKm: number;
+  minDeliveryFee: number;
+  maxDeliveryDistanceKm: number;
+  deliveryEnabled: boolean;
+  roundingRule: DeliveryRoundingRule;
 
   // Appearance & Display
   theme: ThemePreference;
@@ -24,6 +34,13 @@ export type StoreSettingsRow = {
   address: string | null;
   opening_hours: string | null;
   delivery_fee: number | string | null;
+  cafe_latitude: number | string | null;
+  cafe_longitude: number | string | null;
+  price_per_km: number | string | null;
+  min_delivery_fee: number | string | null;
+  max_delivery_distance_km: number | string | null;
+  delivery_enabled: boolean | null;
+  rounding_rule: string | null;
   updated_at: string | null;
 };
 
@@ -33,9 +50,16 @@ export const DEFAULT_SETTINGS: NebaSettings = {
   cafeName: "NEBA Café",
   phone: "+251 91 123 4567",
   email: "hello@nebacafe.com",
-  address: "Bole Medhanialem, Camorra Building, Addis Ababa, Ethiopia",
+  address: "Piassa, Next to Kibru Hospital, Hawassa, Ethiopia.",
   openingHours: "Mon – Sun: 7:00 AM – 10:00 PM",
-  deliveryFee: 80,
+  deliveryFee: 90, // Legacy fallback
+  cafeLatitude: null, // Left NULL until confirmed by owner
+  cafeLongitude: null, // Left NULL until confirmed by owner
+  pricePerKm: 20,
+  minDeliveryFee: 50,
+  maxDeliveryDistanceKm: 15,
+  deliveryEnabled: true,
+  roundingRule: "nearest_5",
   theme: "light",
   showToasts: true,
 };
@@ -61,12 +85,18 @@ export function applyTheme(theme: ThemePreference): void {
   }
 }
 
+const parseCoordinate = (val: unknown, min: number, max: number): number | null => {
+  if (val === null || val === undefined || val === "") return null;
+  const num = Number(val);
+  return !isNaN(num) && num >= min && num <= max ? num : null;
+};
+
 /**
  * Normalizes a raw Supabase store_settings record and merges with local browser preferences.
  */
 export function normalizeStoreSettings(
   row?: Partial<StoreSettingsRow> | null,
-  localPrefs?: Partial<NebaSettings>
+  localPrefs?: Partial<NebaSettings>,
 ): NebaSettings {
   const currentLocal = localPrefs || readSettings();
 
@@ -74,6 +104,56 @@ export function normalizeStoreSettings(
     row?.delivery_fee !== undefined && row?.delivery_fee !== null
       ? Number(row.delivery_fee)
       : undefined;
+
+  const cafeLat = parseCoordinate(
+    row?.cafe_latitude !== undefined ? row.cafe_latitude : currentLocal.cafeLatitude,
+    -90,
+    90,
+  );
+  const cafeLng = parseCoordinate(
+    row?.cafe_longitude !== undefined ? row.cafe_longitude : currentLocal.cafeLongitude,
+    -180,
+    180,
+  );
+
+  const parsedPricePerKm = Number(
+    row?.price_per_km !== undefined ? row.price_per_km : currentLocal.pricePerKm,
+  );
+  const pricePerKm =
+    !isNaN(parsedPricePerKm) && parsedPricePerKm >= 0
+      ? parsedPricePerKm
+      : DEFAULT_SETTINGS.pricePerKm;
+
+  const parsedMinFee = Number(
+    row?.min_delivery_fee !== undefined ? row.min_delivery_fee : currentLocal.minDeliveryFee,
+  );
+  const minDeliveryFee =
+    !isNaN(parsedMinFee) && parsedMinFee >= 0 ? parsedMinFee : DEFAULT_SETTINGS.minDeliveryFee;
+
+  const parsedMaxDist = Number(
+    row?.max_delivery_distance_km !== undefined
+      ? row.max_delivery_distance_km
+      : currentLocal.maxDeliveryDistanceKm,
+  );
+  const maxDeliveryDistanceKm =
+    !isNaN(parsedMaxDist) && parsedMaxDist > 0
+      ? parsedMaxDist
+      : DEFAULT_SETTINGS.maxDeliveryDistanceKm;
+
+  const deliveryEnabled =
+    typeof row?.delivery_enabled === "boolean"
+      ? row.delivery_enabled
+      : typeof currentLocal.deliveryEnabled === "boolean"
+        ? currentLocal.deliveryEnabled
+        : DEFAULT_SETTINGS.deliveryEnabled;
+
+  const validRoundingRules: DeliveryRoundingRule[] = ["none", "nearest_1", "nearest_5", "ceil"];
+  const rawRule = (row?.rounding_rule ||
+    currentLocal.roundingRule ||
+    DEFAULT_SETTINGS.roundingRule) as DeliveryRoundingRule;
+  const roundingRule = validRoundingRules.includes(rawRule)
+    ? rawRule
+    : DEFAULT_SETTINGS.roundingRule;
 
   return {
     cafeName:
@@ -100,8 +180,15 @@ export function normalizeStoreSettings(
       typeof parsedFee === "number" && !isNaN(parsedFee) && parsedFee >= 0
         ? parsedFee
         : typeof currentLocal.deliveryFee === "number" && !isNaN(currentLocal.deliveryFee)
-        ? currentLocal.deliveryFee
-        : DEFAULT_SETTINGS.deliveryFee,
+          ? currentLocal.deliveryFee
+          : DEFAULT_SETTINGS.deliveryFee,
+    cafeLatitude: cafeLat,
+    cafeLongitude: cafeLng,
+    pricePerKm,
+    minDeliveryFee,
+    maxDeliveryDistanceKm,
+    deliveryEnabled,
+    roundingRule,
     theme: currentLocal.theme || DEFAULT_SETTINGS.theme,
     showToasts:
       typeof currentLocal.showToasts === "boolean"
@@ -125,9 +212,36 @@ export function readSettings(): NebaSettings {
     if (!parsed || typeof parsed !== "object") return { ...DEFAULT_SETTINGS };
 
     const parsedDeliveryFee =
-      typeof parsed.deliveryFee === "number" && !isNaN(parsed.deliveryFee) && parsed.deliveryFee >= 0
+      typeof parsed.deliveryFee === "number" &&
+      !isNaN(parsed.deliveryFee) &&
+      parsed.deliveryFee >= 0
         ? parsed.deliveryFee
         : DEFAULT_SETTINGS.deliveryFee;
+
+    const cafeLat = parseCoordinate(parsed.cafeLatitude, -90, 90);
+    const cafeLng = parseCoordinate(parsed.cafeLongitude, -180, 180);
+
+    const pricePerKmNum = Number(parsed.pricePerKm);
+    const pricePerKm =
+      !isNaN(pricePerKmNum) && pricePerKmNum >= 0 ? pricePerKmNum : DEFAULT_SETTINGS.pricePerKm;
+
+    const minFeeNum = Number(parsed.minDeliveryFee);
+    const minDeliveryFee =
+      !isNaN(minFeeNum) && minFeeNum >= 0 ? minFeeNum : DEFAULT_SETTINGS.minDeliveryFee;
+
+    const maxDistNum = Number(parsed.maxDeliveryDistanceKm);
+    const maxDeliveryDistanceKm =
+      !isNaN(maxDistNum) && maxDistNum > 0 ? maxDistNum : DEFAULT_SETTINGS.maxDeliveryDistanceKm;
+
+    const deliveryEnabled =
+      typeof parsed.deliveryEnabled === "boolean"
+        ? parsed.deliveryEnabled
+        : DEFAULT_SETTINGS.deliveryEnabled;
+
+    const validRoundingRules: DeliveryRoundingRule[] = ["none", "nearest_1", "nearest_5", "ceil"];
+    const roundingRule = validRoundingRules.includes(parsed.roundingRule)
+      ? (parsed.roundingRule as DeliveryRoundingRule)
+      : DEFAULT_SETTINGS.roundingRule;
 
     return {
       cafeName:
@@ -151,6 +265,13 @@ export function readSettings(): NebaSettings {
           ? parsed.openingHours.trim()
           : DEFAULT_SETTINGS.openingHours,
       deliveryFee: parsedDeliveryFee,
+      cafeLatitude: cafeLat,
+      cafeLongitude: cafeLng,
+      pricePerKm,
+      minDeliveryFee,
+      maxDeliveryDistanceKm,
+      deliveryEnabled,
+      roundingRule,
       theme:
         parsed.theme === "dark" || parsed.theme === "light" || parsed.theme === "system"
           ? parsed.theme
@@ -194,6 +315,9 @@ export function resetSettings(): NebaSettings {
   return { ...DEFAULT_SETTINGS };
 }
 
+const STORE_SETTINGS_COLUMNS =
+  "id, cafe_name, phone, email, address, opening_hours, delivery_fee, cafe_latitude, cafe_longitude, price_per_km, min_delivery_fee, max_delivery_distance_km, delivery_enabled, rounding_rule, updated_at";
+
 /**
  * Fetches the singleton store settings row (id = 1) from Supabase public.store_settings.
  * If no record exists yet, returns default settings without inserting anything.
@@ -205,7 +329,7 @@ export async function fetchStoreSettings(): Promise<{
 }> {
   try {
     const { data, error } = await (supabase.from("store_settings" as any) as any)
-      .select("id, cafe_name, phone, email, address, opening_hours, delivery_fee, updated_at")
+      .select(STORE_SETTINGS_COLUMNS)
       .eq("id", 1)
       .maybeSingle();
 
@@ -228,9 +352,7 @@ export async function fetchStoreSettings(): Promise<{
  * Upserts the singleton store settings row (id = 1) in Supabase public.store_settings.
  * Persists business fields to the database and saves browser preferences locally.
  */
-export async function updateStoreSettings(
-  settings: NebaSettings
-): Promise<{
+export async function updateStoreSettings(settings: NebaSettings): Promise<{
   data: NebaSettings | null;
   error: Error | null;
 }> {
@@ -246,12 +368,25 @@ export async function updateStoreSettings(
       address: settings.address.trim() || DEFAULT_SETTINGS.address,
       opening_hours: settings.openingHours.trim() || DEFAULT_SETTINGS.openingHours,
       delivery_fee: safeDeliveryFee,
+      cafe_latitude:
+        settings.cafeLatitude !== null && !isNaN(Number(settings.cafeLatitude))
+          ? Number(settings.cafeLatitude)
+          : null,
+      cafe_longitude:
+        settings.cafeLongitude !== null && !isNaN(Number(settings.cafeLongitude))
+          ? Number(settings.cafeLongitude)
+          : null,
+      price_per_km: Math.max(0, Number(settings.pricePerKm) || 0),
+      min_delivery_fee: Math.max(0, Number(settings.minDeliveryFee) || 0),
+      max_delivery_distance_km: Math.max(0.1, Number(settings.maxDeliveryDistanceKm) || 15),
+      delivery_enabled: Boolean(settings.deliveryEnabled),
+      rounding_rule: settings.roundingRule || "nearest_5",
       updated_at: new Date().toISOString(),
     };
 
     const { data, error } = await (supabase.from("store_settings" as any) as any)
       .upsert(payload, { onConflict: "id" })
-      .select("id, cafe_name, phone, email, address, opening_hours, delivery_fee, updated_at")
+      .select(STORE_SETTINGS_COLUMNS)
       .single();
 
     if (error) {

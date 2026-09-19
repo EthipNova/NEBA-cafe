@@ -1,13 +1,20 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
 import type { Category, Product } from "@/lib/menu-data";
 import type { Order, OrderItem, OrderStatus } from "@/lib/orders";
 import type { Promotion, DiscountType, PromotionStatus } from "@/lib/promotions";
-import { DEFAULT_SETTINGS, type NebaSettings } from "@/lib/settings";
+import { DEFAULT_SETTINGS, normalizeStoreSettings, type NebaSettings } from "@/lib/settings";
+import {
+  calculateDeliveryFee,
+  calculateHaversineDistance,
+  isValidCoordinate,
+} from "@/lib/distance";
 import { serverSupabase as supabase } from "./supabase";
 import { type AboutContent, DEFAULT_ABOUT_CONTENT, normalizeAboutContent } from "@/lib/content";
 import { createScopedClient } from "@/lib/supabase";
+import type { ContactMessage, CreateContactMessageInput } from "@/lib/contact";
 
 export interface DatabaseSchema {
   categories: Category[];
@@ -71,6 +78,12 @@ export async function readDb(): Promise<DatabaseSchema> {
  * Writes data to data/db.json for offline backup.
  */
 export async function writeDb(data: DatabaseSchema): Promise<void> {
+  // In serverless environments (e.g. Vercel) the filesystem is read-only.
+  // Skip filesystem writes so operations rely purely on authoritative Supabase persistence.
+  if (process.env["VERCEL"] || process.env["AWS_LAMBDA_FUNCTION_NAME"]) {
+    return;
+  }
+
   const filePath = resolveDbPath();
   const dir = path.dirname(filePath);
 
@@ -98,30 +111,30 @@ function getProductFallbackImage(name: string, categorySlug?: string): string {
   const cat = (categorySlug || "").toLowerCase();
 
   if (n.includes("pizza") || cat.includes("pizza")) {
-    return "/src/assets/margherita.jpg";
+    return "/images/margherita.jpg";
   }
   if (n.includes("chicken") && n.includes("burger")) {
-    return "/src/assets/chicken-burger.jpg";
+    return "/images/chicken-burger.jpg";
   }
   if (n.includes("cheese") && n.includes("burger")) {
-    return "/src/assets/cheese-burger.jpg";
+    return "/images/cheese-burger.jpg";
   }
   if (n.includes("burger") || cat.includes("burger")) {
-    return "/src/assets/classic-burger.jpg";
+    return "/images/classic-burger.jpg";
   }
   if (n.includes("fries") || n.includes("chip") || cat.includes("side")) {
-    return "/src/assets/fries.jpg";
+    return "/images/fries.jpg";
   }
   if (n.includes("sprite")) {
-    return "/src/assets/sprite.jpg";
+    return "/images/sprite.jpg";
   }
   if (n.includes("water")) {
-    return "/src/assets/water.jpg";
+    return "/images/water.jpg";
   }
   if (n.includes("drink") || n.includes("cola") || cat.includes("drink")) {
-    return "/src/assets/cola.jpg";
+    return "/images/cola.jpg";
   }
-  return "/src/assets/hero.jpg";
+  return "/images/hero.jpg";
 }
 
 /* ==========================================================================
@@ -146,6 +159,7 @@ function normalizeProduct(raw: any): Product {
 
   return {
     id: raw.id,
+    categoryId: raw.category_id || categoryRaw?.id || undefined,
     name: raw.name,
     slug: raw.slug || raw.id,
     categorySlug,
@@ -183,14 +197,33 @@ function normalizePromotion(raw: any): Promotion {
     }
   }
 
+  const categoryId = raw.category_id ?? categoryRaw?.id ?? null;
+  const isCategory = Boolean(categoryId);
+  const isLegacyAll =
+    !isCategory &&
+    Array.isArray(raw.applicableProductIds) &&
+    raw.applicableProductIds.includes("*");
+  const appliesToAll = isCategory ? false : Boolean(raw.applies_to_all) || isLegacyAll;
+
+  let resolvedProductIds: string[] = [];
+  if (isCategory) {
+    resolvedProductIds = [];
+  } else if (appliesToAll) {
+    resolvedProductIds = [];
+  } else {
+    resolvedProductIds = applicableProductIds.filter((id) => id && id !== "*");
+  }
+
   return {
     id: raw.id,
     name: raw.name || "Special Promotion",
     description: raw.description || "",
     discountType: (raw.discount_type as DiscountType) || "percentage",
     discountValue: Number(raw.discount_value) || 0,
-    applicableProductIds: applicableProductIds.length > 0 ? applicableProductIds : ["*"],
+    appliesToAll,
+    applicableProductIds: resolvedProductIds,
     applicableCategorySlug: categoryRaw?.slug ?? undefined,
+    categoryId,
     startDate: raw.start_date || "",
     endDate: raw.end_date || "",
     status: (raw.status as PromotionStatus) || "active",
@@ -219,18 +252,33 @@ function normalizeOrder(raw: any): Order {
     createdAt: raw.created_at,
     method: raw.method || "dine-in",
     status: raw.status || "received",
-    paymentStatus: paymentStatus === "paid" || paymentStatus === "pending" || paymentStatus === "failed" ? paymentStatus : "paid",
+    paymentStatus:
+      paymentStatus === "paid" || paymentStatus === "pending" || paymentStatus === "failed"
+        ? paymentStatus
+        : "paid",
     paymentMethod,
     customer: {
       name: raw.customer_name || "Guest",
       phone: raw.customer_phone || "",
       table: raw.table_number || undefined,
       address: raw.delivery_address || undefined,
+      latitude:
+        raw.delivery_latitude !== null && raw.delivery_latitude !== undefined
+          ? Number(raw.delivery_latitude)
+          : null,
+      longitude:
+        raw.delivery_longitude !== null && raw.delivery_longitude !== undefined
+          ? Number(raw.delivery_longitude)
+          : null,
     },
     items,
     subtotal: Number(raw.subtotal) || 0,
     discount: Number(raw.discount_amount) || 0,
     delivery: Number(raw.delivery_fee) || 0,
+    distanceKm:
+      raw.delivery_distance_km !== null && raw.delivery_distance_km !== undefined
+        ? Number(raw.delivery_distance_km)
+        : null,
     total: Number(raw.total_amount) || 0,
   };
 }
@@ -267,7 +315,8 @@ export async function getProducts(options?: {
 }): Promise<Product[]> {
   try {
     let query = (supabase.from("products" as any) as any)
-      .select(`
+      .select(
+        `
         id,
         category_id,
         name,
@@ -286,7 +335,8 @@ export async function getProducts(options?: {
           tagline,
           is_active
         )
-      `)
+      `,
+      )
       .order("created_at", { ascending: false });
 
     if (typeof options?.available === "boolean") {
@@ -320,7 +370,8 @@ export async function getProducts(options?: {
 export async function getProductById(id: string): Promise<Product | undefined> {
   try {
     const { data, error } = await (supabase.from("products" as any) as any)
-      .select(`
+      .select(
+        `
         id,
         category_id,
         name,
@@ -338,7 +389,8 @@ export async function getProductById(id: string): Promise<Product | undefined> {
           tagline,
           is_active
         )
-      `)
+      `,
+      )
       .or(`id.eq.${id},slug.eq.${id}`)
       .maybeSingle();
 
@@ -409,14 +461,18 @@ export async function createProduct(
   return newProduct;
 }
 
-export async function updateProduct(id: string, updates: Partial<Product>): Promise<Product | null> {
+export async function updateProduct(
+  id: string,
+  updates: Partial<Product>,
+): Promise<Product | null> {
   try {
     const updatePayload: Record<string, any> = {
       updated_at: new Date().toISOString(),
     };
     if (updates.name !== undefined) updatePayload["name"] = updates.name.trim();
     if (updates.price !== undefined) updatePayload["price"] = updates.price;
-    if (updates.description !== undefined) updatePayload["description"] = updates.description.trim();
+    if (updates.description !== undefined)
+      updatePayload["description"] = updates.description.trim();
     if (updates.available !== undefined) updatePayload["is_available"] = updates.available;
     if (updates.featured !== undefined) updatePayload["is_featured"] = updates.featured;
     if (updates.image !== undefined) updatePayload["image_url"] = updates.image.trim();
@@ -476,10 +532,15 @@ export async function deleteProduct(id: string): Promise<boolean> {
    Orders (Live Supabase with Local Fallback)
    ========================================================================== */
 
-export async function getOrders(options?: { phone?: string | undefined }): Promise<Order[]> {
+export async function getOrders(
+  options?: { phone?: string | undefined },
+  client: any = supabase,
+): Promise<Order[]> {
+  const dbClient = client || supabase;
   try {
-    const { data, error } = await (supabase.from("orders" as any) as any)
-      .select(`
+    const { data, error } = await (dbClient.from("orders" as any) as any)
+      .select(
+        `
         id,
         order_number,
         customer_name,
@@ -488,6 +549,9 @@ export async function getOrders(options?: { phone?: string | undefined }): Promi
         status,
         table_number,
         delivery_address,
+        delivery_latitude,
+        delivery_longitude,
+        delivery_distance_km,
         subtotal,
         discount_amount,
         delivery_fee,
@@ -516,7 +580,8 @@ export async function getOrders(options?: { phone?: string | undefined }): Promi
           status,
           amount
         )
-      `)
+      `,
+      )
       .order("created_at", { ascending: false });
 
     if (!error && Array.isArray(data)) {
@@ -540,10 +605,36 @@ export async function getOrders(options?: { phone?: string | undefined }): Promi
   return [];
 }
 
-export async function getOrderById(id: string): Promise<Order | undefined> {
+/**
+ * Fetches only orders belonging exclusively to the customer associated with an auth.users.id.
+ * Performs database-level filtering via customers.user_id = userId -> orders.customer_id.
+ */
+export async function getOrdersForCustomerUser(userId: string, client?: any): Promise<Order[]> {
+  const dbClient = client || supabase;
   try {
-    const { data, error } = await (supabase.from("orders" as any) as any)
-      .select(`
+    // 1. Resolve customer ID linked to auth.users.id
+    let customerId: string | null = null;
+    try {
+      const { data: cust, error: custErr } = await (dbClient.from("customers" as any) as any)
+        .select("id")
+        .eq("user_id", userId)
+        .maybeSingle();
+
+      if (!custErr && cust?.id) {
+        customerId = cust.id;
+      }
+    } catch {
+      /* ignore lookup failure */
+    }
+
+    if (!customerId) {
+      return [];
+    }
+
+    // 2. Query orders belonging exclusively to this customer
+    const { data, error } = await (dbClient.from("orders" as any) as any)
+      .select(
+        `
         id,
         order_number,
         customer_name,
@@ -552,6 +643,9 @@ export async function getOrderById(id: string): Promise<Order | undefined> {
         status,
         table_number,
         delivery_address,
+        delivery_latitude,
+        delivery_longitude,
+        delivery_distance_km,
         subtotal,
         discount_amount,
         delivery_fee,
@@ -580,7 +674,169 @@ export async function getOrderById(id: string): Promise<Order | undefined> {
           status,
           amount
         )
-      `)
+      `,
+      )
+      .eq("customer_id", customerId)
+      .order("created_at", { ascending: false });
+
+    if (!error && Array.isArray(data)) {
+      return data.map(normalizeOrder);
+    }
+    if (error) {
+      console.warn("[db] Failed to fetch customer orders:", error.message);
+    }
+  } catch (err) {
+    console.error("[db] Exception in getOrdersForCustomerUser:", err);
+  }
+  return [];
+}
+
+/**
+ * Retrieves the customer profile (public.users + public.customers) by auth.users.id.
+ */
+export async function getCustomerProfileByUserId(
+  userId: string,
+  client: any = supabase,
+): Promise<{
+  user: {
+    id: string;
+    email: string;
+    role: string;
+    full_name?: string | null;
+    phone?: string | null;
+  } | null;
+  customer: { id: string; name: string; phone?: string | null; email?: string | null } | null;
+}> {
+  const dbClient = client || supabase;
+  let dbUser = null;
+  let customer = null;
+
+  try {
+    const { data: u } = await (dbClient.from("users" as any) as any)
+      .select("id, email, role, full_name, phone")
+      .eq("id", userId)
+      .maybeSingle();
+    dbUser = u;
+  } catch {
+    /* ignore */
+  }
+
+  try {
+    const { data: c } = await (dbClient.from("customers" as any) as any)
+      .select("id, name, phone, email")
+      .eq("user_id", userId)
+      .maybeSingle();
+    customer = c;
+  } catch {
+    /* ignore */
+  }
+
+  return { user: dbUser, customer };
+}
+
+/**
+ * Synchronizes customer profile updates in public.users and public.customers.
+ */
+export async function syncCustomerProfile(
+  userId: string,
+  email: string,
+  payload: { full_name?: string; phone?: string },
+): Promise<void> {
+  const nowIso = new Date().toISOString();
+
+  // Upsert into public.users
+  try {
+    await (supabase.from("users" as any) as any).upsert({
+      id: userId,
+      email,
+      role: "CUSTOMER",
+      full_name: payload.full_name || null,
+      phone: payload.phone || null,
+      updated_at: nowIso,
+    });
+  } catch (err) {
+    console.warn("[db] syncCustomerProfile users upsert warning:", err);
+  }
+
+  // Upsert into public.customers
+  try {
+    const { data: existingCust } = await (supabase.from("customers" as any) as any)
+      .select("id")
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    if (existingCust?.id) {
+      await (supabase.from("customers" as any) as any)
+        .update({
+          name: payload.full_name || email.split("@")[0],
+          phone: payload.phone || null,
+          email,
+          updated_at: nowIso,
+        })
+        .eq("id", existingCust.id);
+    } else {
+      await (supabase.from("customers" as any) as any).insert({
+        id: crypto.randomUUID(),
+        user_id: userId,
+        name: payload.full_name || email.split("@")[0],
+        phone: payload.phone || null,
+        email,
+        created_at: nowIso,
+        updated_at: nowIso,
+      });
+    }
+  } catch (err) {
+    console.warn("[db] syncCustomerProfile customers upsert warning:", err);
+  }
+}
+
+export async function getOrderById(id: string, client?: any): Promise<Order | undefined> {
+  const dbClient = client || supabase;
+  try {
+    const { data, error } = await (dbClient.from("orders" as any) as any)
+      .select(
+        `
+        id,
+        order_number,
+        customer_name,
+        customer_phone,
+        method,
+        status,
+        table_number,
+        delivery_address,
+        delivery_latitude,
+        delivery_longitude,
+        delivery_distance_km,
+        subtotal,
+        discount_amount,
+        delivery_fee,
+        total_amount,
+        created_at,
+        updated_at,
+        order_items (
+          id,
+          order_id,
+          product_id,
+          name,
+          quantity,
+          unit_price,
+          line_total,
+          products (
+            id,
+            name,
+            image_url,
+            price
+          )
+        ),
+        payments (
+          id,
+          order_id,
+          method,
+          status,
+          amount
+        )
+      `,
+      )
       .or(`id.eq.${id},order_number.eq.${id}`)
       .maybeSingle();
 
@@ -595,50 +851,140 @@ export async function getOrderById(id: string): Promise<Order | undefined> {
   return local.orders.find((o) => o.id === id || o.number === id);
 }
 
-export async function createOrder(input: {
-  lines: { productId: string; name?: string; quantity: number; price?: number }[];
-  method: Order["method"];
-  customer: Order["customer"];
-  paymentMethod?: string;
-  paymentStatus?: "paid" | "pending" | "failed";
-  delivery?: number | undefined;
-  discount?: number | undefined;
-}): Promise<Order> {
-  // ── Step A: Resolve product details ────────────────────────────────────────
-  const products = await getProducts();
-  const items: OrderItem[] = input.lines.flatMap((line) => {
-    const product = products.find((p) => p.id === line.productId || p.slug === line.productId);
-    const name = line.name || product?.name || "Menu Item";
-    const price =
-      line.price !== undefined
-        ? Number(line.price)
-        : product?.price !== undefined
-          ? Number(product.price)
-          : 0;
-    return [
-      {
-        productId: product?.id || line.productId,
-        name,
-        quantity: Math.max(1, Number(line.quantity) || 1),
-        price,
-      },
-    ];
-  });
+export async function createOrder(
+  input: {
+    lines: { productId: string; name?: string; quantity: number; price?: number }[];
+    method: Order["method"];
+    customer: Order["customer"];
+    paymentMethod?: string;
+    paymentStatus?: "paid" | "pending" | "failed";
+    delivery?: number | undefined;
+    discount?: number | undefined;
+    authUserId?: string | undefined;
+    authUserEmail?: string | undefined;
+  },
+  client?: any,
+): Promise<Order> {
+  const dbClient = client || supabase;
+
+  // ── Step A: Canonical product resolution & server-side pricing ─────────────
+  if (!Array.isArray(input.lines) || input.lines.length === 0) {
+    throw new Error("Order must contain at least one item.");
+  }
+
+  const allProducts = await getProducts();
+  const productMap = new Map(allProducts.map((p) => [p.id, p]));
+  for (const p of allProducts) {
+    if (p.slug) productMap.set(p.slug, p);
+  }
+
+  const items: OrderItem[] = [];
+  for (const line of input.lines) {
+    const product = productMap.get(line.productId);
+    if (!product) {
+      throw new Error(`Invalid product: Item with ID "${line.productId}" was not found.`);
+    }
+    if (product.available === false) {
+      throw new Error(`Product unavailable: "${product.name}" is currently not available.`);
+    }
+
+    const qty = Number(line.quantity);
+    if (!Number.isInteger(qty) || qty <= 0) {
+      throw new Error(
+        `Invalid quantity for product "${product.name}". Must be a positive whole number.`,
+      );
+    }
+
+    // Strictly server-authoritative price from database. Ignore any client-supplied line.price.
+    const price = Number(product.price);
+
+    items.push({
+      productId: product.id,
+      name: product.name,
+      quantity: qty,
+      price,
+    });
+  }
 
   const subtotal = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
-  const discount = Math.max(0, Number(input.discount) || 0);
-  const delivery =
-    input.delivery !== undefined
-      ? Number(input.delivery)
-      : input.method === "delivery"
-        ? 90
-        : 0;
+
+  // Authoritative discount: NEBA Café promotions are item-level menu discounts.
+  // There is no server-authoritative coupon/discount code mechanism for orders.
+  // The authoritative discount is strictly 0. Ignore any client-supplied input.discount.
+  const discount = 0;
+
+  // ── Step B: Authoritative delivery calculation ─────────────────────────────
+  let delivery = 0;
+  let deliveryLatitude: number | null = null;
+  let deliveryLongitude: number | null = null;
+  let deliveryDistanceKm: number | null = null;
+
+  if (input.method === "delivery") {
+    const settings = await getSettings();
+
+    if (settings.deliveryEnabled === false) {
+      throw new Error("Delivery orders are currently disabled. Please choose Takeaway or Dine-in.");
+    }
+
+    if (!isValidCoordinate(settings.cafeLatitude, settings.cafeLongitude)) {
+      throw new Error(
+        "Delivery is currently unavailable because the café location has not been configured. Please choose Takeaway or Dine-in.",
+      );
+    }
+
+    const custLat = input.customer?.latitude;
+    const custLng = input.customer?.longitude;
+
+    if (!isValidCoordinate(custLat, custLng)) {
+      throw new Error(
+        "Valid delivery coordinates are required for delivery orders. Please select your location on the map or choose Takeaway or Dine-in.",
+      );
+    }
+
+    const latNum = Number(custLat);
+    const lngNum = Number(custLng);
+
+    const distance = calculateHaversineDistance(
+      settings.cafeLatitude!,
+      settings.cafeLongitude!,
+      latNum,
+      lngNum,
+    );
+
+    const feeResult = calculateDeliveryFee(distance, settings);
+    if (!feeResult.eligible) {
+      throw new Error(
+        feeResult.reason ||
+          `Your selected location is outside our delivery area (${distance.toFixed(1)} km away). Maximum delivery distance is ${settings.maxDeliveryDistanceKm} km. Please choose Takeaway or Dine-in.`,
+      );
+    }
+
+    delivery = feeResult.fee;
+    deliveryLatitude = latNum;
+    deliveryLongitude = lngNum;
+    deliveryDistanceKm = distance;
+  } else {
+    // For dine-in and takeaway, delivery fee must always be 0
+    delivery = 0;
+    deliveryLatitude = null;
+    deliveryLongitude = null;
+    deliveryDistanceKm = null;
+  }
+
   const total = Math.max(0, subtotal - discount + delivery);
   const paymentStatus = input.paymentStatus || "paid";
   const paymentMethod = input.paymentMethod || "Mobile Payment";
 
-  const existingOrders = await getOrders();
-  const orderNumber = `#${1000 + (existingOrders.length % 900) + Math.floor(Math.random() * 90)}`;
+  // Atomically obtain canonical order number from PostgreSQL sequence via RPC.
+  // The sequence is the single source of truth; no timestamp/random fallback.
+  const { data: orderNumber, error: rpcErr } = await (dbClient.rpc as any)("next_order_number");
+  if (rpcErr || !orderNumber) {
+    console.error("[db] Failed to generate order number from sequence:", rpcErr);
+    throw new Error(
+      `Failed to generate order number: ${rpcErr?.message || "Sequence unavailable"}`,
+    );
+  }
+
   const orderId = `ord_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
   const nowIso = new Date().toISOString();
 
@@ -646,98 +992,117 @@ export async function createOrder(input: {
   const customerName =
     input.customer?.name?.trim() || (input.method === "dine-in" ? "Dine-in Guest" : "Guest");
 
-  // ── Step B: Find or create customer profile ────────────────────────────────
-  // Always attempts find-or-create so that orders.customer_id is never null
-  // for identifiable customers (phone OR named dine-in guests).
-  //
-  // Identity resolution order:
-  //   1. Phone (primary key — normalised to strip spaces/+251 prefix)
-  //   2. Name  (fallback for anonymous dine-in with no phone provided)
-  //
-  // Skipped only for truly anonymous orders: no phone AND name is a generic
-  // placeholder ("Guest", "Dine-in Guest").
+  // ── Step C: Customer Identification & Resolution ───────────────────────────
   let customerId: string | null = null;
 
   // Normalise phone for consistent deduplication across +251/09/251 formats
   const normPhone = customerPhone
-    ? customerPhone.replace(/[\s\-().]/g, "").replace(/^\+251/, "0").replace(/^251/, "0")
+    ? customerPhone
+        .replace(/[\s\-().]/g, "")
+        .replace(/^\+251/, "0")
+        .replace(/^251/, "0")
     : "";
 
-  const isAnonymous =
-    !normPhone &&
-    (!customerName ||
-      customerName.toLowerCase() === "guest" ||
-      customerName.toLowerCase() === "dine-in guest");
-
-  if (!isAnonymous) {
+  if (input.authUserId) {
+    // ── C0: Authenticated Customer: Resolve or create record linked to auth.users.id
+    // Must use token-scoped client to satisfy customer RLS (auth.uid() = user_id)
     try {
-      // ── B1: Lookup by normalised phone first ──────────────────────────────
-      let existingId: string | null = null;
+      const { data: byUser } = await (dbClient.from("customers" as any) as any)
+        .select("id, name, phone")
+        .eq("user_id", input.authUserId)
+        .maybeSingle();
 
-      if (normPhone) {
-        // Try exact stored phone match and also the normalised variant
-        const { data: byPhone } = await (supabase.from("customers" as any) as any)
-          .select("id")
-          .or(`phone.eq.${customerPhone},phone.eq.${normPhone}`)
-          .maybeSingle();
-        if (byPhone?.id) {
-          existingId = byPhone.id;
+      if (byUser?.id) {
+        customerId = byUser.id;
+        const updatePayload: Record<string, unknown> = { updated_at: nowIso };
+        if (customerName && customerName !== byUser["name"]) updatePayload["name"] = customerName;
+        if (customerPhone && customerPhone !== byUser["phone"])
+          updatePayload["phone"] = customerPhone;
+        if (input.authUserEmail) updatePayload["email"] = input.authUserEmail;
+        if (Object.keys(updatePayload).length > 1) {
+          await (dbClient.from("customers" as any) as any)
+            .update(updatePayload)
+            .eq("id", customerId);
         }
-      }
-
-      // ── B2: Fallback – lookup by name when no phone and not anonymous ─────
-      if (!existingId && !normPhone && customerName) {
-        const { data: byName } = await (supabase.from("customers" as any) as any)
-          .select("id")
-          .ilike("name", customerName.trim())
-          .maybeSingle();
-        if (byName?.id) {
-          existingId = byName.id;
-        }
-      }
-
-      if (existingId) {
-        // Found — reuse existing customer; optionally refresh name
-        customerId = existingId;
-        // Update name if it changed (non-fatal)
-        await (supabase.from("customers" as any) as any)
-          .update({ name: customerName, updated_at: nowIso })
-          .eq("id", existingId);
       } else {
-        // ── B3: Create new customer record ──────────────────────────────────
-        // customers.id is type uuid — must use a proper UUID v4
         const newCustId = crypto.randomUUID();
-        const { data: createdCust, error: custErr } = await (supabase.from("customers" as any) as any)
-          .insert({
-            id: newCustId,
-            name: customerName,
-            // Store the original phone value; normalised version used only for lookup
-            phone: normPhone || null,
-            created_at: nowIso,
-            updated_at: nowIso,
-          })
-          .select("id")
-          .maybeSingle();
+        const insertPayload: Record<string, unknown> = {
+          id: newCustId,
+          user_id: input.authUserId,
+          name: customerName,
+          phone: customerPhone || normPhone || null,
+          email: input.authUserEmail || null,
+          created_at: nowIso,
+          updated_at: nowIso,
+        };
 
-        if (!custErr && createdCust?.id) {
-          customerId = createdCust.id;
-          console.log(`[db] New customer created: ${customerName} (${customerId})`);
-        } else if (custErr) {
-          // Log clearly — still non-fatal so the order itself is not lost
+        const { error: custErr } = await (dbClient.from("customers" as any) as any).insert(
+          insertPayload,
+        );
+
+        if (!custErr) {
+          customerId = newCustId;
+        } else {
           console.error(
-            `[db] Customer create failed (code ${custErr.code}): ${custErr.message}` +
-            (custErr.code === "42501"
-              ? " >> Add SUPABASE_SERVICE_ROLE_KEY to .env or run supabase/policies.sql"
-              : ""),
+            `[db] Authenticated customer create failed (code ${custErr.code}): ${custErr.message}`,
           );
+          throw new Error(`Failed to create customer record: ${custErr.message}`);
         }
+      }
+    } catch (authCustErr) {
+      console.error("[db] Authenticated customer resolution error:", authCustErr);
+      if (
+        authCustErr instanceof Error &&
+        authCustErr.message.startsWith("Failed to create customer record")
+      ) {
+        throw authCustErr;
+      }
+      throw new Error(
+        `Failed to create customer record: ${authCustErr instanceof Error ? authCustErr.message : "Unknown error"}`,
+      );
+    }
+  } else {
+    // ── C1 & C2: Guest Checkout (no auth user): Create guest customer with known UUID
+    // Pure INSERT without .select() to avoid anonymous SELECT RLS restriction (42501)
+    try {
+      const newCustId = crypto.randomUUID();
+      const guestPhone = normPhone || `09${Date.now().toString().slice(-8)}`;
+      const { error: custErr } = await (dbClient.from("customers" as any) as any).insert({
+        id: newCustId,
+        name: customerName,
+        phone: guestPhone,
+        created_at: nowIso,
+        updated_at: nowIso,
+      });
+
+      if (!custErr) {
+        customerId = newCustId;
+      } else if (custErr.code === "23505") {
+        console.warn(
+          "[db] Guest phone already registered; proceeding with order-level contact info.",
+        );
+        customerId = null;
+      } else {
+        console.error(
+          `[db] Guest customer create failed (code ${custErr.code}): ${custErr.message}`,
+        );
+        throw new Error(`Failed to create customer record: ${custErr.message}`);
       }
     } catch (custEx) {
-      console.error("[db] Customer find-or-create error (non-fatal, order will proceed):", custEx);
+      console.error("[db] Guest customer creation error:", custEx);
+      if (
+        custEx instanceof Error &&
+        custEx.message.startsWith("Failed to create customer record")
+      ) {
+        throw custEx;
+      }
+      throw new Error(
+        `Failed to create customer record: ${custEx instanceof Error ? custEx.message : "Unknown error"}`,
+      );
     }
   }
 
-  // ── Step C: Insert the order row (FATAL if this fails) ─────────────────────
+  // ── Step D: Insert the order row (FATAL if this fails) ─────────────────────
   const orderRecord = {
     id: orderId,
     order_number: orderNumber,
@@ -748,6 +1113,9 @@ export async function createOrder(input: {
     status: "received",
     table_number: input.customer?.table || null,
     delivery_address: input.customer?.address || null,
+    delivery_latitude: deliveryLatitude,
+    delivery_longitude: deliveryLongitude,
+    delivery_distance_km: deliveryDistanceKm,
     subtotal,
     discount_amount: discount,
     delivery_fee: delivery,
@@ -756,56 +1124,36 @@ export async function createOrder(input: {
     updated_at: nowIso,
   };
 
-  const { error: ordErr } = await (supabase.from("orders" as any) as any).insert(orderRecord);
+  const { error: ordErr } = await (dbClient.from("orders" as any) as any).insert(orderRecord);
 
   if (ordErr) {
-    // Emit a clear, actionable error message.
-    const is42501 = ordErr.code === "42501";
-    const hint = is42501
-      ? "\n  >> RLS is blocking the insert. Either:\n" +
-        "     (a) Add SUPABASE_SERVICE_ROLE_KEY to your .env file (get it from Supabase\n" +
-        "         Dashboard -> Project Settings -> API -> service_role), OR\n" +
-        "     (b) Run supabase/policies.sql in the Supabase SQL Editor to allow anon inserts."
-      : "";
-    console.error(`[db] Supabase order insert error (code ${ordErr.code}):`, ordErr.message, hint);
-    throw new Error(
-      `Failed to save order to database: ${ordErr.message || String(ordErr)}` +
-      (is42501 ? " (RLS policy violation -- see server logs for fix instructions)" : ""),
-    );
+    console.error(`[db] Supabase order insert error (code ${ordErr.code}):`, ordErr.message);
+    throw new Error(`Failed to create order: ${ordErr.message || String(ordErr)}`);
   }
 
-  // ── Step D: Insert order items (non-fatal individually, logged clearly) ─────
+  // ── Step E: Insert order items (FATAL if this fails) ───────────────────────
   if (items.length > 0) {
-    // Build a set of Supabase product IDs for FK validation.
-    // products[] was already fetched from Supabase in Step A.
-    // Any product whose ID starts with "p-" (local-only mock IDs) is not in
-    // Supabase's products table and must be stored with product_id = null to
-    // avoid violating the fk_order_items_product foreign key constraint.
-    const supabaseProductIds = new Set(products.map((p) => p.id));
+    const supabaseProductIds = new Set(allProducts.map((p) => p.id));
 
     const itemRecords = items.map((it) => ({
       order_id: orderId,
-      // Only set product_id if the product actually exists in Supabase
       product_id: supabaseProductIds.has(it.productId) ? it.productId : null,
       name: it.name,
       quantity: it.quantity,
       unit_price: it.price,
       line_total: it.price * it.quantity,
     }));
-    const { error: itemsErr } = await (supabase.from("order_items" as any) as any).insert(itemRecords);
+    const { error: itemsErr } = await (dbClient.from("order_items" as any) as any).insert(
+      itemRecords,
+    );
     if (itemsErr) {
-      // Log clearly but don't throw — the order row already exists.
-      console.error(
-        `[db] order_items insert failed (code ${itemsErr.code}): ${itemsErr.message}`,
-        itemsErr.code === "42501"
-          ? ">> Apply supabase/policies.sql or use service-role key."
-          : "",
-      );
+      console.error(`[db] order_items insert failed (code ${itemsErr.code}): ${itemsErr.message}`);
+      throw new Error(`Failed to create order items: ${itemsErr.message}`);
     }
   }
 
-  // ── Step E: Insert payment record (non-fatal, logged clearly) ───────────────
-  const { error: payErr } = await (supabase.from("payments" as any) as any).insert({
+  // ── Step F: Insert payment record (FATAL if this fails) ────────────────────
+  const { error: payErr } = await (dbClient.from("payments" as any) as any).insert({
     order_id: orderId,
     method: paymentMethod,
     status: paymentStatus,
@@ -814,19 +1162,20 @@ export async function createOrder(input: {
     created_at: nowIso,
   });
   if (payErr) {
-    console.error(
-      `[db] payments insert failed (code ${payErr.code}): ${payErr.message}`,
-      payErr.code === "42501"
-        ? ">> Apply supabase/policies.sql or use service-role key."
-        : "",
-    );
+    console.error(`[db] payments insert failed (code ${payErr.code}): ${payErr.message}`);
+    throw new Error(`Failed to create payment: ${payErr.message}`);
   }
 
-  // ── Step F: Fetch the persisted order for a canonical response ───────────────
-  const created = await getOrderById(orderId);
-  if (created) return created;
+  // ── Step G: Construct canonical order response ─────────────────────────────
+  if (input.authUserId && client) {
+    try {
+      const created = await getOrderById(orderId, client);
+      if (created) return created;
+    } catch {
+      /* fallback to synthesized response */
+    }
+  }
 
-  // Fallback: return a synthesized Order object if the SELECT fails
   return {
     id: orderId,
     number: orderNumber,
@@ -840,11 +1189,14 @@ export async function createOrder(input: {
       phone: customerPhone,
       ...(input.customer?.table ? { table: input.customer.table } : {}),
       ...(input.customer?.address ? { address: input.customer.address } : {}),
+      latitude: deliveryLatitude,
+      longitude: deliveryLongitude,
     },
     items,
     subtotal,
     discount,
     delivery,
+    distanceKm: deliveryDistanceKm,
     total,
   };
 }
@@ -913,10 +1265,11 @@ interface RawCustomerAddressRow {
  * using the server-side service-role client (bypasses RLS).
  * This function runs on the server only — never called from the browser.
  */
-export async function getCustomers(): Promise<RawCustomerRow[]> {
+export async function getCustomers(client: any = supabase): Promise<RawCustomerRow[]> {
   try {
-    const { data, error } = await (supabase.from("customers" as any) as any)
-      .select(`
+    const { data, error } = await (client.from("customers" as any) as any)
+      .select(
+        `
         id,
         name,
         phone,
@@ -930,6 +1283,9 @@ export async function getCustomers(): Promise<RawCustomerRow[]> {
           status,
           table_number,
           delivery_address,
+          delivery_latitude,
+          delivery_longitude,
+          delivery_distance_km,
           subtotal,
           discount_amount,
           delivery_fee,
@@ -957,7 +1313,8 @@ export async function getCustomers(): Promise<RawCustomerRow[]> {
           is_default,
           created_at
         )
-      `)
+      `,
+      )
       .order("created_at", { ascending: false });
 
     if (error) {
@@ -975,23 +1332,31 @@ export async function getCustomers(): Promise<RawCustomerRow[]> {
 export async function updateOrderStatus(
   idOrNumber: string,
   status: OrderStatus,
+  client: any = supabase,
+  changedBy?: string,
 ): Promise<Order | null> {
-  // Always update in local fallback DB first so it is immediately reflected
-  const db = await readDb();
-  const orderIndex = db.orders.findIndex((o) => o.id === idOrNumber || o.number === idOrNumber);
-  let localUpdated: Order | null = null;
-  if (orderIndex !== -1) {
-    db.orders[orderIndex]!.status = status;
-    localUpdated = db.orders[orderIndex]!;
-    await writeDb(db);
+  const dbClient = client || supabase;
+  const nowIso = new Date().toISOString();
+
+  // 1. Fetch current order to check existence, canonical id, and current status
+  const currentOrder = await getOrderById(idOrNumber, dbClient);
+  if (!currentOrder) {
+    return null;
   }
 
-  // Also update in Supabase if present
+  const oldStatus = currentOrder.status;
+
+  // 2. If status is already the requested status, return without duplicate log
+  if (oldStatus === status) {
+    return currentOrder;
+  }
+
+  // 3. Update order in Supabase with authenticated client
+  let updatedOrder: Order | null = null;
   try {
-    const { error, data } = await (supabase.from("orders" as any) as any)
-      .update({ status, updated_at: new Date().toISOString() })
-      .or(`id.eq.${idOrNumber},order_number.eq.${idOrNumber}`)
-      .select(`
+    const { data, error } = await (dbClient.from("orders" as any) as any)
+      .update({ status, updated_at: nowIso })
+      .eq("id", currentOrder.id).select(`
         id,
         order_number,
         customer_name,
@@ -1031,13 +1396,51 @@ export async function updateOrderStatus(
       `);
 
     if (!error && data && data.length > 0) {
-      return normalizeOrder(data[0]);
+      updatedOrder = normalizeOrder(data[0]);
+    } else if (error) {
+      console.warn(
+        `[db] Failed to update order status in Supabase for ${currentOrder.id}:`,
+        error.message,
+      );
+      throw new Error(`Failed to update order status: ${error.message}`);
     }
   } catch (err) {
-    console.warn(`[db] Failed to update order status in Supabase for ${idOrNumber}:`, err);
+    console.warn(`[db] Exception updating order status for ${currentOrder.id}:`, err);
+    throw err;
   }
 
-  return localUpdated;
+  if (!updatedOrder) {
+    return null;
+  }
+
+  // 4. Record transition in public.order_status_logs
+  try {
+    const { error: logErr } = await (dbClient.from("order_status_logs" as any) as any).insert({
+      id: crypto.randomUUID(),
+      order_id: currentOrder.id,
+      from_status: oldStatus,
+      to_status: status,
+      changed_by: changedBy || null,
+      created_at: nowIso,
+    });
+    if (logErr) {
+      console.warn("[db] Warning: Failed to insert order_status_logs:", logErr.message);
+    }
+  } catch (err) {
+    console.warn("[db] Exception logging order status change:", err);
+  }
+
+  // 5. Update local fallback DB
+  const db = await readDb();
+  const orderIndex = db.orders.findIndex(
+    (o) => o.id === currentOrder.id || o.number === currentOrder.number,
+  );
+  if (orderIndex !== -1) {
+    db.orders[orderIndex]!.status = status;
+    await writeDb(db);
+  }
+
+  return updatedOrder;
 }
 
 export async function updateOrderPayment(
@@ -1101,12 +1504,14 @@ export async function updateOrderPayment(
 export async function getPromotions(): Promise<Promotion[]> {
   try {
     const { data, error } = await (supabase.from("promotions" as any) as any)
-      .select(`
+      .select(
+        `
         id,
         name,
         description,
         discount_type,
         discount_value,
+        applies_to_all,
         start_date,
         end_date,
         status,
@@ -1130,7 +1535,8 @@ export async function getPromotions(): Promise<Promotion[]> {
             category_id
           )
         )
-      `)
+      `,
+      )
       .order("created_at", { ascending: false });
 
     if (!error && data && data.length > 0) {
@@ -1145,6 +1551,27 @@ export async function getPromotions(): Promise<Promotion[]> {
 }
 
 export async function updatePromotions(promotions: Promotion[]): Promise<Promotion[]> {
+  try {
+    for (const promo of promotions) {
+      if (promo.id) {
+        await (supabase.from("promotions" as any) as any)
+          .update({
+            name: promo.name,
+            description: promo.description,
+            discount_type: promo.discountType,
+            discount_value: promo.discountValue,
+            start_date: promo.startDate,
+            end_date: promo.endDate,
+            status: promo.status || "active",
+            min_order_amount: promo.minOrderAmount || null,
+          })
+          .eq("id", promo.id);
+      }
+    }
+  } catch (err) {
+    console.warn("[db] Failed to update promotions in Supabase:", err);
+  }
+
   const db = await readDb();
   db.promotions = promotions;
   await writeDb(db);
@@ -1182,9 +1609,7 @@ export async function createPromotion(promo: Promotion): Promise<Promotion> {
 
 export async function deletePromotion(id: string): Promise<boolean> {
   try {
-    const { error } = await (supabase.from("promotions" as any) as any)
-      .delete()
-      .eq("id", id);
+    const { error } = await (supabase.from("promotions" as any) as any).delete().eq("id", id);
     if (!error) return true;
   } catch (err) {
     console.warn(`[db] Failed to delete promotion ${id} from Supabase:`, err);
@@ -1205,33 +1630,24 @@ export async function deletePromotion(id: string): Promise<boolean> {
 export async function getSettings(): Promise<NebaSettings> {
   try {
     const { data, error } = await (supabase.from("store_settings" as any) as any)
-      .select("id, cafe_name, phone, email, address, opening_hours, delivery_fee, updated_at")
+      .select(
+        "id, cafe_name, phone, email, address, opening_hours, delivery_fee, cafe_latitude, cafe_longitude, price_per_km, min_delivery_fee, max_delivery_distance_km, delivery_enabled, rounding_rule, updated_at",
+      )
       .eq("id", 1)
       .maybeSingle();
 
     if (!error && data) {
-      const parsedFee =
-        data.delivery_fee !== undefined && data.delivery_fee !== null
-          ? Number(data.delivery_fee)
-          : DEFAULT_SETTINGS.deliveryFee;
-
-      return {
-        cafeName: data.cafe_name || DEFAULT_SETTINGS.cafeName,
-        phone: data.phone || DEFAULT_SETTINGS.phone,
-        email: data.email || DEFAULT_SETTINGS.email,
-        address: data.address || DEFAULT_SETTINGS.address,
-        openingHours: data.opening_hours || DEFAULT_SETTINGS.openingHours,
-        deliveryFee: !isNaN(parsedFee) && parsedFee >= 0 ? parsedFee : DEFAULT_SETTINGS.deliveryFee,
-        theme: "light",
-        showToasts: true,
-      };
+      return normalizeStoreSettings(data);
+    }
+    if (error) {
+      console.warn("[db] Failed to fetch store settings from Supabase:", error.message);
     }
   } catch (err) {
     console.warn("[db] Failed to fetch store settings from Supabase:", err);
   }
 
   const local = await readDb();
-  return local.settings;
+  return normalizeStoreSettings(local.settings as any);
 }
 
 export async function updateSettings(updates: Partial<NebaSettings>): Promise<NebaSettings> {
@@ -1246,6 +1662,34 @@ export async function updateSettings(updates: Partial<NebaSettings>): Promise<Ne
     if (updates.openingHours !== undefined) payload["opening_hours"] = updates.openingHours.trim();
     if (updates.deliveryFee !== undefined) payload["delivery_fee"] = Number(updates.deliveryFee);
 
+    if (updates.cafeLatitude !== undefined) {
+      payload["cafe_latitude"] =
+        updates.cafeLatitude === null || updates.cafeLatitude === undefined
+          ? null
+          : Number(updates.cafeLatitude);
+    }
+    if (updates.cafeLongitude !== undefined) {
+      payload["cafe_longitude"] =
+        updates.cafeLongitude === null || updates.cafeLongitude === undefined
+          ? null
+          : Number(updates.cafeLongitude);
+    }
+    if (updates.pricePerKm !== undefined) {
+      payload["price_per_km"] = Number(updates.pricePerKm);
+    }
+    if (updates.minDeliveryFee !== undefined) {
+      payload["min_delivery_fee"] = Number(updates.minDeliveryFee);
+    }
+    if (updates.maxDeliveryDistanceKm !== undefined) {
+      payload["max_delivery_distance_km"] = Number(updates.maxDeliveryDistanceKm);
+    }
+    if (updates.deliveryEnabled !== undefined) {
+      payload["delivery_enabled"] = Boolean(updates.deliveryEnabled);
+    }
+    if (updates.roundingRule !== undefined) {
+      payload["rounding_rule"] = updates.roundingRule;
+    }
+
     const { data, error } = await (supabase.from("store_settings" as any) as any)
       .update(payload)
       .eq("id", 1)
@@ -1254,6 +1698,9 @@ export async function updateSettings(updates: Partial<NebaSettings>): Promise<Ne
 
     if (!error && data) {
       return getSettings();
+    }
+    if (error) {
+      console.warn("[db] Failed to update store settings in Supabase:", error.message);
     }
   } catch (err) {
     console.warn("[db] Failed to update store settings in Supabase:", err);
@@ -1274,7 +1721,6 @@ export async function updateSettings(updates: Partial<NebaSettings>): Promise<Ne
 
 export async function getAboutContent(): Promise<AboutContent> {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data, error } = await (supabase.from("about_content" as any) as any)
       .select(
         "id, homepage_hero_image, about_hero_image, about_title, about_description, story_title, story_content, story_image, value_1_title, value_1_description, value_2_title, value_2_description, value_3_title, value_3_description, updated_at",
@@ -1332,7 +1778,6 @@ export async function updateAboutContent(
 
   try {
     const client = token ? createScopedClient(token) : supabase;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data, error } = await (client.from("about_content" as any) as any)
       .update(payload)
       .eq("id", 1)
@@ -1373,4 +1818,95 @@ export async function updateAboutContent(
   });
   await writeDb(db);
   return db.about_content;
+}
+
+/* ==========================================================================
+   Contact Messages (Supabase public.contact_messages)
+   ========================================================================== */
+
+/**
+ * Inserts a new contact message submitted from the public contact page.
+ * Uses pure INSERT without .select() to adhere to strict anonymous RLS policies.
+ */
+export async function createContactMessage(
+  input: CreateContactMessageInput,
+  client: any = supabase,
+): Promise<{ success: boolean; id: string }> {
+  const dbClient = client || supabase;
+  const id = crypto.randomUUID();
+  const nowIso = new Date().toISOString();
+
+  const payload = {
+    id,
+    name: input.name.trim(),
+    email: input.email.trim(),
+    message: input.message.trim(),
+    is_read: false,
+    created_at: nowIso,
+  };
+
+  const { error } = await (dbClient.from("contact_messages" as any) as any).insert(payload);
+
+  if (error) {
+    console.error("[db] Failed to insert contact message:", error.message);
+    throw new Error(`Failed to save contact message: ${error.message}`);
+  }
+
+  return { success: true, id };
+}
+
+/**
+ * Retrieves all contact messages for authenticated ADMIN / STAFF users.
+ * Ordered by submission date (newest first).
+ */
+export async function getContactMessages(client: any = supabase): Promise<ContactMessage[]> {
+  const dbClient = client || supabase;
+  const { data, error } = await (dbClient.from("contact_messages" as any) as any)
+    .select("id, name, email, message, is_read, created_at")
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    console.error("[db] Failed to fetch contact messages:", error.message);
+    throw new Error(`Failed to load contact messages: ${error.message}`);
+  }
+
+  return (data || []) as ContactMessage[];
+}
+
+/**
+ * Updates the read status of a contact message (ADMIN / STAFF only).
+ */
+export async function updateContactMessageReadStatus(
+  id: string,
+  isRead: boolean,
+  client: any = supabase,
+): Promise<ContactMessage | null> {
+  const dbClient = client || supabase;
+  const { data, error } = await (dbClient.from("contact_messages" as any) as any)
+    .update({ is_read: isRead })
+    .eq("id", id)
+    .select("id, name, email, message, is_read, created_at")
+    .maybeSingle();
+
+  if (error) {
+    console.error(`[db] Failed to update contact message ${id}:`, error.message);
+    throw new Error(`Failed to update message: ${error.message}`);
+  }
+
+  return (data || null) as ContactMessage | null;
+}
+
+/**
+ * Deletes a contact message (ADMIN / STAFF only).
+ */
+export async function deleteContactMessage(id: string, client: any = supabase): Promise<boolean> {
+  const dbClient = client || supabase;
+  const { error } = await (dbClient.from("contact_messages" as any) as any).delete().eq("id", id);
+
+  if (error) {
+    console.error(`[db] Failed to delete contact message ${id}:`, error.message);
+    throw new Error(`Failed to delete message: ${error.message}`);
+  }
+
+  return true;
 }

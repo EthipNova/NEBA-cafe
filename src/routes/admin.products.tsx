@@ -113,10 +113,7 @@ function AdminProducts() {
     setLoading(true);
     setError(null);
     try {
-      const [prodRes, catRes] = await Promise.all([
-        fetchAdminProducts(),
-        fetchAdminCategories(),
-      ]);
+      const [prodRes, catRes] = await Promise.all([fetchAdminProducts(), fetchAdminCategories()]);
 
       if (catRes.error) {
         setError(catRes.error.message);
@@ -190,9 +187,7 @@ function AdminProducts() {
           setUploadStatus("Uploading image…");
           const uploadResult = await uploadProductImage(editing.id, draft.imageFile);
           if (uploadResult.error || !uploadResult.url) {
-            toast.error(
-              uploadResult.error?.message || "Image upload failed. Please try again."
-            );
+            toast.error(uploadResult.error?.message || "Image upload failed. Please try again.");
             return;
           }
           finalImageUrl = uploadResult.url;
@@ -209,7 +204,7 @@ function AdminProducts() {
             imageUrl: finalImageUrl,
             description: draft.description,
           },
-          categories
+          categories,
         );
 
         if (error || !data) {
@@ -239,9 +234,7 @@ function AdminProducts() {
           setUploadStatus("Uploading image…");
           const uploadResult = await uploadProductImage(newProductId, draft.imageFile);
           if (uploadResult.error || !uploadResult.url) {
-            toast.error(
-              uploadResult.error?.message || "Image upload failed. Please try again."
-            );
+            toast.error(uploadResult.error?.message || "Image upload failed. Please try again.");
             return;
           }
           finalImageUrl = uploadResult.url;
@@ -258,7 +251,7 @@ function AdminProducts() {
             imageUrl: finalImageUrl,
             description: draft.description,
           },
-          categories
+          categories,
         );
 
         if (error || !data) {
@@ -291,16 +284,14 @@ function AdminProducts() {
     setTogglingId(p.id);
 
     // Optimistically update local state
-    setProducts((prev) =>
-      prev.map((r) => (r.id === p.id ? { ...r, available: checked } : r))
-    );
+    setProducts((prev) => prev.map((r) => (r.id === p.id ? { ...r, available: checked } : r)));
 
     try {
       const { success, error } = await toggleAdminProductAvailability(p.id, checked);
       if (!success) {
         // Revert to previous state if Supabase mutation failed
         setProducts((prev) =>
-          prev.map((r) => (r.id === p.id ? { ...r, available: prevAvailable } : r))
+          prev.map((r) => (r.id === p.id ? { ...r, available: prevAvailable } : r)),
         );
         toast.error(error?.message || "Failed to update product availability");
       } else {
@@ -338,12 +329,7 @@ function AdminProducts() {
             <h3 className="text-base font-semibold text-foreground">Failed to load products</h3>
             <p className="text-xs text-muted-foreground max-w-md mx-auto">{error}</p>
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => void loadData()}
-            className="gap-1.5"
-          >
+          <Button variant="outline" size="sm" onClick={() => void loadData()} className="gap-1.5">
             <RotateCcw className="size-3.5" aria-hidden />
             <span>Retry connection</span>
           </Button>
@@ -398,11 +384,7 @@ function AdminProducts() {
                       />
                     </td>
                     <td className="p-3 text-right">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => openEdit(p)}
-                      >
+                      <Button variant="ghost" size="sm" onClick={() => openEdit(p)}>
                         <Pencil className="size-4" /> Edit
                       </Button>
                     </td>
@@ -624,9 +606,7 @@ function ProductDialog({
                 <UploadCloud className="size-5" />
               </div>
               <p className="text-sm font-medium text-foreground">Select a product image</p>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                JPG, PNG, or WEBP up to 5 MB
-              </p>
+              <p className="text-xs text-muted-foreground mt-0.5">JPG, PNG, or WEBP up to 5 MB</p>
               <Button
                 type="button"
                 variant="outline"

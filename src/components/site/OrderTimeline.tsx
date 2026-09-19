@@ -23,7 +23,11 @@ export function OrderTimeline({ order }: { order: Order }) {
                   !done && !active && "border-border bg-card text-muted-foreground",
                 )}
               >
-                {done ? <Check className="size-4" /> : <span className="size-2 rounded-full bg-current" />}
+                {done ? (
+                  <Check className="size-4" />
+                ) : (
+                  <span className="size-2 rounded-full bg-current" />
+                )}
               </span>
               {index < flow.length - 1 && (
                 <span

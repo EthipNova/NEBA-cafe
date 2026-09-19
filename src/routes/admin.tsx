@@ -6,6 +6,7 @@ import {
   Globe,
   LayoutDashboard,
   LogOut,
+  Mail,
   Package,
   Settings,
   ShoppingBag,
@@ -49,6 +50,7 @@ const nav = [
   { to: "/admin/categories", label: "Categories", icon: FolderTree, exact: false },
   { to: "/admin/availability", label: "Availability", icon: ToggleLeft, exact: false },
   { to: "/admin/content", label: "Website Content", icon: Globe, exact: false },
+  { to: "/admin/contact-messages", label: "Messages", icon: Mail, exact: false },
   { to: "/admin/settings", label: "Settings", icon: Settings, exact: false },
   { to: "/admin/account", label: "Account", icon: UserCheck, exact: false },
 ] as const;

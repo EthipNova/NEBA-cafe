@@ -84,17 +84,13 @@ function AdminCategories() {
     setTogglingId(c.id);
 
     // Optimistically update local state
-    setRows((prev) =>
-      prev.map((r) => (r.id === c.id ? { ...r, active: checked } : r))
-    );
+    setRows((prev) => prev.map((r) => (r.id === c.id ? { ...r, active: checked } : r)));
 
     try {
       const { success, error } = await toggleAdminCategoryActive(c.id, checked);
       if (!success) {
         // Rollback to previous state on failure
-        setRows((prev) =>
-          prev.map((r) => (r.id === c.id ? { ...r, active: previousState } : r))
-        );
+        setRows((prev) => prev.map((r) => (r.id === c.id ? { ...r, active: previousState } : r)));
         toast.error(error?.message || "Failed to update category status");
       } else {
         toast.success(`${c.name} ${checked ? "activated" : "deactivated"}`);
@@ -140,12 +136,7 @@ function AdminCategories() {
             <h3 className="text-base font-semibold text-foreground">Failed to load categories</h3>
             <p className="text-xs text-muted-foreground max-w-md mx-auto">{error}</p>
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => void loadData()}
-            className="gap-1.5"
-          >
+          <Button variant="outline" size="sm" onClick={() => void loadData()} className="gap-1.5">
             <RotateCcw className="size-3.5" aria-hidden />
             <span>Retry connection</span>
           </Button>
@@ -171,9 +162,7 @@ function AdminCategories() {
                   onCheckedChange={(checked) => handleToggleActive(c, checked)}
                 />
               </div>
-              <p className="mt-4 text-xs text-muted-foreground">
-                {c.productCount} product(s)
-              </p>
+              <p className="mt-4 text-xs text-muted-foreground">{c.productCount} product(s)</p>
             </li>
           ))}
         </ul>
