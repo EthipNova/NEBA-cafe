@@ -324,28 +324,30 @@ function Home() {
       <Section>
         <SectionHeading eyebrow="Categories" title="Find what you're craving" />
         <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-          {categoriesList.map((c) => (
-            <Link
-              key={c.id}
-              to="/menu/$category"
-              params={{ category: c.slug }}
-              className="surface-card hover-lift flex flex-col gap-1 p-5"
-            >
-              {(() => {
-                const catImg = categoryImages[c.slug];
-                return catImg ? (
-                  <img
-                    src={catImg.src}
-                    alt={catImg.alt}
-                    className="mb-3 h-16 w-full object-contain object-left"
-                  />
-                ) : null;
-              })()}
-              <span className="font-display text-lg font-semibold">{c.name}</span>
-              <span className="text-sm text-muted-foreground">{c.tagline}</span>
-              <ArrowRight className="mt-4 size-4 text-primary" />
-            </Link>
-          ))}
+          {categoriesList
+            .filter((c) => c && c.active !== false)
+            .map((c) => (
+              <Link
+                key={c.id}
+                to="/menu/$category"
+                params={{ category: c.slug }}
+                className="surface-card hover-lift flex flex-col gap-1 p-5"
+              >
+                {(() => {
+                  const catImg = categoryImages[c.slug];
+                  return catImg ? (
+                    <img
+                      src={catImg.src}
+                      alt={catImg.alt}
+                      className="mb-3 h-16 w-full object-contain object-left"
+                    />
+                  ) : null;
+                })()}
+                <span className="font-display text-lg font-semibold">{c.name}</span>
+                <span className="text-sm text-muted-foreground">{c.tagline}</span>
+                <ArrowRight className="mt-4 size-4 text-primary" />
+              </Link>
+            ))}
         </div>
       </Section>
 

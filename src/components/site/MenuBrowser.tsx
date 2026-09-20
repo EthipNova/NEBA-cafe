@@ -75,17 +75,39 @@ export function MenuBrowser({
     };
   }, []);
 
+  const activeCategories = useMemo(() => {
+    return categoriesList.filter((c) => c && c.active !== false);
+  }, [categoriesList]);
+
+  const disabledCategoryIdentifiers = useMemo(() => {
+    const slugs = new Set<string>();
+    const ids = new Set<string>();
+    for (const c of categoriesList) {
+      if (c && c.active === false) {
+        if (c.slug) slugs.add(c.slug.toLowerCase());
+        if (c.id) ids.add(c.id);
+      }
+    }
+    return { slugs, ids };
+  }, [categoriesList]);
+
   const results = useMemo(() => {
     const q = query.trim().toLowerCase();
     return productsList.filter((p) => {
+      // Exclude products belonging to disabled categories
+      const isProductCategoryDisabled =
+        (p.categorySlug && disabledCategoryIdentifiers.slugs.has(p.categorySlug.toLowerCase())) ||
+        (p.categoryId && disabledCategoryIdentifiers.ids.has(p.categoryId));
+      if (isProductCategoryDisabled) return false;
+
       if (activeCategory && p.categorySlug !== activeCategory) return false;
       if (availableOnly && !p.available) return false;
       if (!q) return true;
       return p.name.toLowerCase().includes(q) || p.description.toLowerCase().includes(q);
     });
-  }, [query, availableOnly, activeCategory, productsList]);
+  }, [query, availableOnly, activeCategory, productsList, disabledCategoryIdentifiers]);
 
-  const current = categoriesList.find((c) => c.slug === activeCategory);
+  const current = activeCategories.find((c) => c.slug === activeCategory);
 
   return (
     <Section>
@@ -109,7 +131,7 @@ export function MenuBrowser({
         >
           All
         </Link>
-        {categoriesList.map((c) => (
+        {activeCategories.map((c) => (
           <Link
             key={c.id}
             to="/menu/$category"
