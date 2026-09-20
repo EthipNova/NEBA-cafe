@@ -1,12 +1,23 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { AlertCircle, Plus, RotateCcw } from "lucide-react";
+import { AlertCircle, Plus, RotateCcw, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   createAdminCategory,
+  deleteAdminCategory,
   fetchAdminCategories,
   toggleAdminCategoryActive,
   type AdminCategory,
@@ -33,6 +44,8 @@ function AdminCategories() {
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [togglingId, setTogglingId] = useState<string | null>(null);
+  const [categoryToDelete, setCategoryToDelete] = useState<AdminCategory | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const loadData = async () => {
     setLoading(true);
@@ -44,7 +57,7 @@ function AdminCategories() {
         return;
       }
       setRows(data || []);
-    } catch (err: any) {
+    } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to load categories");
     } finally {
       setLoading(false);
@@ -73,7 +86,9 @@ function AdminCategories() {
 
       setRows((prev) => [...prev, data]);
       setName("");
-      toast.success(`Category "${data.name}" created successfully.`);
+      toast.success("Category created");
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to create category");
     } finally {
       setIsSubmitting(false);
     }
@@ -97,6 +112,37 @@ function AdminCategories() {
       }
     } finally {
       setTogglingId(null);
+    }
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!categoryToDelete) return;
+
+    if (categoryToDelete.productCount > 0) {
+      toast.error(
+        `Cannot delete "${categoryToDelete.name}" because it contains ${categoryToDelete.productCount} product(s). Reassign or remove those products first, or disable the category instead.`,
+      );
+      setCategoryToDelete(null);
+      return;
+    }
+
+    const target = categoryToDelete;
+    setIsDeleting(true);
+
+    try {
+      const { success, error: delError } = await deleteAdminCategory(target.id);
+      if (!success) {
+        toast.error(delError?.message || "Failed to delete category");
+        return;
+      }
+
+      setRows((prev) => prev.filter((r) => r.id !== target.id));
+      setCategoryToDelete(null);
+      toast.success("Category deleted");
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to delete category");
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -155,18 +201,78 @@ function AdminCategories() {
                   <h2 className="font-display text-lg font-semibold">{c.name}</h2>
                   <p className="text-sm text-muted-foreground">{c.tagline}</p>
                 </div>
-                <Switch
-                  checked={c.active}
-                  disabled={togglingId === c.id}
-                  aria-label={`Toggle ${c.name}`}
-                  onCheckedChange={(checked) => handleToggleActive(c, checked)}
-                />
+                <div className="flex items-center gap-1">
+                  <Switch
+                    checked={c.active}
+                    disabled={togglingId === c.id || isDeleting}
+                    aria-label={`Toggle ${c.name}`}
+                    onCheckedChange={(checked) => handleToggleActive(c, checked)}
+                  />
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="size-8 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                    onClick={() => setCategoryToDelete(c)}
+                    aria-label={`Delete ${c.name}`}
+                    disabled={isDeleting}
+                  >
+                    <Trash2 className="size-4" />
+                  </Button>
+                </div>
               </div>
               <p className="mt-4 text-xs text-muted-foreground">{c.productCount} product(s)</p>
             </li>
           ))}
         </ul>
       )}
+
+      {/* DELETE CONFIRMATION ALERT DIALOG */}
+      <AlertDialog
+        open={Boolean(categoryToDelete)}
+        onOpenChange={(open) => !open && !isDeleting && setCategoryToDelete(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="font-display">
+              {categoryToDelete && categoryToDelete.productCount > 0
+                ? "Cannot delete category"
+                : "Delete category?"}
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-sm text-muted-foreground">
+              {categoryToDelete && categoryToDelete.productCount > 0 ? (
+                <>
+                  This category cannot be deleted because it contains{" "}
+                  <strong>{categoryToDelete.productCount}</strong>{" "}
+                  {categoryToDelete.productCount === 1 ? "product" : "products"}. Reassign or remove
+                  those products first, or disable the category instead.
+                </>
+              ) : (
+                <>
+                  Are you sure you want to delete <strong>{categoryToDelete?.name}</strong>? This
+                  action permanently removes the category from the menu.
+                </>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>
+              {categoryToDelete && categoryToDelete.productCount > 0 ? "Close" : "Cancel"}
+            </AlertDialogCancel>
+            {categoryToDelete && categoryToDelete.productCount === 0 && (
+              <AlertDialogAction
+                disabled={isDeleting}
+                onClick={(e) => {
+                  e.preventDefault();
+                  void handleDeleteConfirm();
+                }}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                {isDeleting ? "Deleting…" : "Delete"}
+              </AlertDialogAction>
+            )}
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
