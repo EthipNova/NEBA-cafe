@@ -46,8 +46,14 @@ export function Navbar() {
           ))}
         </ul>
 
-        <div className="flex items-center gap-1.5">
-          <Button asChild variant="ghost" size="icon" aria-label="Your account">
+        <div className="flex items-center gap-1 sm:gap-1.5">
+          <Button
+            asChild
+            variant="ghost"
+            size="icon"
+            className="size-11 sm:size-9"
+            aria-label="Your account"
+          >
             <Link to="/account">
               <User className="size-5" />
             </Link>
@@ -56,13 +62,13 @@ export function Navbar() {
             asChild
             variant="ghost"
             size="icon"
-            className="relative"
+            className="relative size-11 sm:size-9"
             aria-label={`Cart, ${count} items`}
           >
             <Link to="/cart">
               <ShoppingBag className="size-5" />
               {count > 0 && (
-                <span className="absolute -right-0.5 -top-0.5 flex size-5 items-center justify-center rounded-full bg-primary text-[11px] font-semibold text-primary-foreground">
+                <span className="absolute top-1 right-1 flex size-5 items-center justify-center rounded-full bg-primary text-[11px] font-semibold text-primary-foreground sm:-right-0.5 sm:-top-0.5">
                   {count}
                 </span>
               )}
@@ -74,43 +80,62 @@ export function Navbar() {
 
           <Sheet open={open} onOpenChange={setOpen}>
             <SheetTrigger asChild>
-              <Button variant="ghost" size="icon" className="md:hidden" aria-label="Open menu">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-11 md:hidden"
+                aria-label="Open menu"
+              >
                 <Menu className="size-5" />
               </Button>
             </SheetTrigger>
-            <SheetContent side="right" className="w-72">
-              <SheetTitle className="font-display text-lg">NEBA Café</SheetTitle>
-              <ul className="mt-6 space-y-1">
-                {links.map((l) => (
-                  <li key={l.to}>
+            <SheetContent side="right" className="w-72 flex flex-col justify-between">
+              <div>
+                <SheetTitle className="font-display text-lg">NEBA Café</SheetTitle>
+                <ul className="mt-6 space-y-1">
+                  {links.map((l) => (
+                    <li key={l.to}>
+                      <Link
+                        to={l.to}
+                        onClick={() => setOpen(false)}
+                        activeOptions={{ exact: l.to === "/" }}
+                        activeProps={{
+                          className:
+                            "bg-primary/10 text-primary font-semibold border-l-2 border-primary pl-2.5",
+                        }}
+                        className="block rounded-lg px-3 py-3 text-base font-medium text-foreground/85 transition-colors hover:bg-secondary"
+                      >
+                        {l.label}
+                      </Link>
+                    </li>
+                  ))}
+                  <li>
                     <Link
-                      to={l.to}
+                      to="/orders"
                       onClick={() => setOpen(false)}
-                      className="block rounded-lg px-3 py-3 text-base font-medium hover:bg-secondary"
+                      activeProps={{
+                        className:
+                          "bg-primary/10 text-primary font-semibold border-l-2 border-primary pl-2.5",
+                      }}
+                      className="block rounded-lg px-3 py-3 text-base font-medium text-foreground/85 transition-colors hover:bg-secondary"
                     >
-                      {l.label}
+                      My Orders
                     </Link>
                   </li>
-                ))}
-                <li>
-                  <Link
-                    to="/orders"
-                    onClick={() => setOpen(false)}
-                    className="block rounded-lg px-3 py-3 text-base font-medium hover:bg-secondary"
-                  >
-                    My Orders
+                </ul>
+              </div>
+
+              <div className="pt-6 border-t border-border/70 mt-auto">
+                <Button
+                  asChild
+                  size="lg"
+                  className="w-full rounded-full bg-primary text-primary-foreground shadow-md shadow-primary/25 hover:bg-primary/90"
+                >
+                  <Link to="/menu" onClick={() => setOpen(false)}>
+                    Order Now
                   </Link>
-                </li>
-                <li>
-                  <Link
-                    to="/admin"
-                    onClick={() => setOpen(false)}
-                    className="block rounded-lg px-3 py-3 text-base font-medium hover:bg-secondary"
-                  >
-                    Admin
-                  </Link>
-                </li>
-              </ul>
+                </Button>
+              </div>
             </SheetContent>
           </Sheet>
         </div>
