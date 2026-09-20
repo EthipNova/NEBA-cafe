@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { AlertCircle, Plus, RotateCcw, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -15,6 +16,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { cn } from "@/lib/utils";
 import {
   createAdminCategory,
   deleteAdminCategory,
@@ -149,22 +151,26 @@ function AdminCategories() {
   return (
     <div className="space-y-6">
       <header>
-        <h1 className="font-display text-3xl font-semibold">Categories</h1>
+        <h1 className="font-display text-2xl sm:text-3xl font-semibold">Categories</h1>
         <p className="text-sm text-muted-foreground">
           Organise the menu and control what customers see.
         </p>
       </header>
 
-      <form onSubmit={create} className="surface-card flex flex-wrap gap-3 p-4">
+      <form onSubmit={create} className="surface-card flex flex-col sm:flex-row gap-3 p-3.5 sm:p-4">
         <Input
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="New category name"
           aria-label="New category name"
-          className="max-w-xs"
+          className="w-full sm:max-w-xs h-11 sm:h-9"
           disabled={isSubmitting}
         />
-        <Button type="submit" disabled={isSubmitting}>
+        <Button
+          type="submit"
+          disabled={isSubmitting}
+          className="w-full sm:w-auto h-11 sm:h-9 gap-1.5"
+        >
           <Plus className="size-4" /> {isSubmitting ? "Adding…" : "Add category"}
         </Button>
       </form>
@@ -195,13 +201,39 @@ function AdminCategories() {
       ) : (
         <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {rows.map((c) => (
-            <li key={c.id} className="surface-card p-5">
+            <li
+              key={c.id}
+              className={cn(
+                "surface-card p-4 sm:p-5 transition-opacity",
+                !c.active && "opacity-80",
+              )}
+            >
               <div className="flex items-start justify-between gap-3">
-                <div>
-                  <h2 className="font-display text-lg font-semibold">{c.name}</h2>
-                  <p className="text-sm text-muted-foreground">{c.tagline}</p>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                    <h2
+                      className={cn(
+                        "font-display text-lg font-semibold break-words",
+                        !c.active && "text-muted-foreground",
+                      )}
+                    >
+                      {c.name}
+                    </h2>
+                    <Badge
+                      variant={c.active ? "secondary" : "outline"}
+                      className={cn(
+                        "text-[10px] px-1.5 py-0 font-normal shrink-0",
+                        !c.active && "text-muted-foreground border-muted-foreground/30",
+                      )}
+                    >
+                      {c.active ? "Active" : "Inactive"}
+                    </Badge>
+                  </div>
+                  {c.tagline ? (
+                    <p className="text-sm text-muted-foreground mt-0.5">{c.tagline}</p>
+                  ) : null}
                 </div>
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-2 shrink-0 pt-0.5">
                   <Switch
                     checked={c.active}
                     disabled={togglingId === c.id || isDeleting}
@@ -211,7 +243,7 @@ function AdminCategories() {
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="size-8 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                    className="size-9 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
                     onClick={() => setCategoryToDelete(c)}
                     aria-label={`Delete ${c.name}`}
                     disabled={isDeleting}

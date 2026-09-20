@@ -152,6 +152,27 @@ function getNextActionLabel(order: Order): string {
   }
 }
 
+function getNextShortActionLabel(order: Order): string {
+  const next = getNextStatus(order);
+  if (!next) return "Done";
+  switch (next) {
+    case "confirmed":
+      return "Confirm";
+    case "preparing":
+      return "Prep";
+    case "ready":
+      return "Ready";
+    case "out-for-delivery":
+      return "Dispatch";
+    case "delivered":
+      return "Delivered";
+    case "completed":
+      return "Complete";
+    default:
+      return statusLabels[next] || "Next";
+  }
+}
+
 function MethodBadge({ method }: { method: OrderMethod }) {
   if (method === "dine-in") {
     return (
@@ -362,7 +383,9 @@ function AdminOrdersPage() {
       <header className="flex flex-wrap items-start justify-between gap-4 border-b border-border/50 pb-5">
         <div>
           <div className="flex items-center gap-2.5">
-            <h1 className="font-display text-3xl font-semibold tracking-tight">Order Management</h1>
+            <h1 className="font-display text-2xl sm:text-3xl font-semibold tracking-tight">
+              Order Management
+            </h1>
             <Badge
               variant="outline"
               className="gap-1.5 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 text-[11px] font-medium"
@@ -420,44 +443,50 @@ function AdminOrdersPage() {
       </header>
 
       {/* KPI Overview Cards */}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="surface-card flex items-center gap-4 p-4">
-          <div className="flex size-11 items-center justify-center rounded-xl bg-amber-500/15 text-amber-600 dark:text-amber-400 shrink-0">
+      <div className="grid grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-4">
+        <div className="surface-card flex items-center gap-3 sm:gap-4 p-3.5 sm:p-4">
+          <div className="flex size-10 sm:size-11 items-center justify-center rounded-xl bg-amber-500/15 text-amber-600 dark:text-amber-400 shrink-0">
             <Utensils className="size-5" />
           </div>
-          <div>
-            <p className="text-xs font-medium text-muted-foreground">Active Kitchen</p>
-            <p className="text-2xl font-semibold font-display mt-0.5">{activeCount}</p>
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-medium text-muted-foreground truncate">Active Kitchen</p>
+            <p className="text-xl sm:text-2xl font-semibold font-display mt-0.5">{activeCount}</p>
           </div>
         </div>
 
-        <div className="surface-card flex items-center gap-4 p-4">
-          <div className="flex size-11 items-center justify-center rounded-xl bg-purple-500/15 text-purple-600 dark:text-purple-400 shrink-0">
+        <div className="surface-card flex items-center gap-3 sm:gap-4 p-3.5 sm:p-4">
+          <div className="flex size-10 sm:size-11 items-center justify-center rounded-xl bg-purple-500/15 text-purple-600 dark:text-purple-400 shrink-0">
             <Truck className="size-5" />
           </div>
-          <div>
-            <p className="text-xs font-medium text-muted-foreground">In Delivery</p>
-            <p className="text-2xl font-semibold font-display mt-0.5">{inDeliveryCount}</p>
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-medium text-muted-foreground truncate">In Delivery</p>
+            <p className="text-xl sm:text-2xl font-semibold font-display mt-0.5">
+              {inDeliveryCount}
+            </p>
           </div>
         </div>
 
-        <div className="surface-card flex items-center gap-4 p-4">
-          <div className="flex size-11 items-center justify-center rounded-xl bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 shrink-0">
+        <div className="surface-card flex items-center gap-3 sm:gap-4 p-3.5 sm:p-4">
+          <div className="flex size-10 sm:size-11 items-center justify-center rounded-xl bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 shrink-0">
             <CheckCircle2 className="size-5" />
           </div>
-          <div>
-            <p className="text-xs font-medium text-muted-foreground">Completed Today</p>
-            <p className="text-2xl font-semibold font-display mt-0.5">{completedTodayCount}</p>
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-medium text-muted-foreground truncate">Completed Today</p>
+            <p className="text-xl sm:text-2xl font-semibold font-display mt-0.5">
+              {completedTodayCount}
+            </p>
           </div>
         </div>
 
-        <div className="surface-card flex items-center gap-4 p-4">
-          <div className="flex size-11 items-center justify-center rounded-xl bg-primary/15 text-primary shrink-0">
+        <div className="surface-card flex items-center gap-3 sm:gap-4 p-3.5 sm:p-4">
+          <div className="flex size-10 sm:size-11 items-center justify-center rounded-xl bg-primary/15 text-primary shrink-0">
             <Receipt className="size-5" />
           </div>
-          <div>
-            <p className="text-xs font-medium text-muted-foreground">Paid Volume</p>
-            <p className="text-2xl font-semibold font-display mt-0.5">{formatETB(todayRevenue)}</p>
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-medium text-muted-foreground truncate">Paid Volume</p>
+            <p className="text-xl sm:text-2xl font-semibold font-display mt-0.5">
+              {formatETB(todayRevenue)}
+            </p>
           </div>
         </div>
       </div>
@@ -474,33 +503,35 @@ function AdminOrdersPage() {
           />
         </div>
 
-        <div className="flex flex-wrap items-center gap-2.5">
-          <Select value={methodFilter} onValueChange={setMethodFilter}>
-            <SelectTrigger className="h-9 w-36 text-xs">
-              <SelectValue placeholder="All Methods" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Methods</SelectItem>
-              <SelectItem value="dine-in">Dine-in</SelectItem>
-              <SelectItem value="takeaway">Takeaway</SelectItem>
-              <SelectItem value="delivery">Delivery</SelectItem>
-            </SelectContent>
-          </Select>
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2.5 w-full sm:w-auto">
+          <div className="grid grid-cols-2 gap-2 w-full sm:flex sm:items-center sm:w-auto">
+            <Select value={methodFilter} onValueChange={setMethodFilter}>
+              <SelectTrigger className="h-9 w-full sm:w-36 text-xs">
+                <SelectValue placeholder="All Methods" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Methods</SelectItem>
+                <SelectItem value="dine-in">Dine-in</SelectItem>
+                <SelectItem value="takeaway">Takeaway</SelectItem>
+                <SelectItem value="delivery">Delivery</SelectItem>
+              </SelectContent>
+            </Select>
 
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="h-9 w-38 text-xs">
-              <SelectValue placeholder="All Statuses" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Statuses</SelectItem>
-              <SelectItem value="received">New / Received</SelectItem>
-              <SelectItem value="confirmed">Confirmed</SelectItem>
-              <SelectItem value="preparing">In Kitchen</SelectItem>
-              <SelectItem value="ready">Ready for Pickup</SelectItem>
-              <SelectItem value="out-for-delivery">Out for Delivery</SelectItem>
-              <SelectItem value="completed">Completed</SelectItem>
-            </SelectContent>
-          </Select>
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="h-9 w-full sm:w-38 text-xs">
+                <SelectValue placeholder="All Statuses" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Statuses</SelectItem>
+                <SelectItem value="received">New / Received</SelectItem>
+                <SelectItem value="confirmed">Confirmed</SelectItem>
+                <SelectItem value="preparing">In Kitchen</SelectItem>
+                <SelectItem value="ready">Ready for Pickup</SelectItem>
+                <SelectItem value="out-for-delivery">Out for Delivery</SelectItem>
+                <SelectItem value="completed">Completed</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
 
           {(searchQuery || methodFilter !== "all" || statusFilter !== "all") && (
             <Button
@@ -511,7 +542,7 @@ function AdminOrdersPage() {
                 setMethodFilter("all");
                 setStatusFilter("all");
               }}
-              className="h-9 px-2 text-xs text-muted-foreground hover:text-foreground"
+              className="h-9 px-2 text-xs text-muted-foreground hover:text-foreground self-start sm:self-auto"
             >
               Reset
             </Button>
@@ -564,7 +595,7 @@ function AdminOrdersPage() {
                 </div>
 
                 {/* Cards List */}
-                <div className="space-y-3 flex-1 overflow-y-auto max-h-[calc(100vh-340px)] pr-0.5">
+                <div className="space-y-3 flex-1 sm:overflow-y-auto sm:max-h-[calc(100vh-340px)] pr-0.5">
                   {colOrders.length === 0 ? (
                     <div className="flex h-24 items-center justify-center rounded-lg border border-dashed border-border/80 text-xs text-muted-foreground">
                       No orders
@@ -653,26 +684,27 @@ function AdminOrdersPage() {
                               <Button
                                 variant="ghost"
                                 size="icon"
-                                className="size-7"
+                                className="size-9"
                                 title="View order details"
+                                aria-label={`View order ${order.number} details`}
                                 onClick={() => setSelectedOrderId(order.id)}
                               >
-                                <Eye className="size-3.5" />
+                                <Eye className="size-4" />
                               </Button>
 
                               {next && (
                                 <Button
                                   size="sm"
-                                  className="h-7 text-xs px-2.5 gap-1"
+                                  className="h-9 text-xs px-3 gap-1.5"
                                   disabled={isUpdating}
                                   onClick={() => handleAdvanceStatus(order)}
                                 >
                                   {isUpdating ? (
-                                    <RefreshCw className="size-3 animate-spin" />
+                                    <RefreshCw className="size-3.5 animate-spin" />
                                   ) : (
                                     <>
-                                      <span>{getNextActionLabel(order).split(" ")[0]}</span>
-                                      <ArrowRight className="size-3" />
+                                      <span>{getNextShortActionLabel(order)}</span>
+                                      <ArrowRight className="size-3.5" />
                                     </>
                                   )}
                                 </Button>
@@ -689,89 +721,191 @@ function AdminOrdersPage() {
           })}
         </div>
       ) : (
-        /* TABLE LIST VIEW */
-        <div className="surface-card overflow-hidden">
-          <Table>
-            <TableHeader>
-              <TableRow className="bg-muted/40 text-xs">
-                <TableHead className="w-24">Order #</TableHead>
-                <TableHead>Customer</TableHead>
-                <TableHead>Type</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Items</TableHead>
-                <TableHead>Total</TableHead>
-                <TableHead>Time</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody className="text-xs">
-              {filteredOrders.map((order) => {
-                const next = getNextStatus(order);
-                const isUpdating = updatingId === order.id;
+        /* TABLE / LIST VIEW */
+        <div className="space-y-3">
+          {/* Mobile Order Cards (md:hidden) */}
+          <div className="space-y-3 md:hidden">
+            {filteredOrders.map((order) => {
+              const next = getNextStatus(order);
+              const isUpdating = updatingId === order.id;
 
-                return (
-                  <TableRow key={order.id} className="hover:bg-muted/30 transition-colors">
-                    <TableCell className="font-display font-semibold text-foreground">
-                      {order.number}
-                    </TableCell>
-                    <TableCell>
-                      <div>
-                        <p className="font-medium text-foreground">
-                          {order.customer.name || "Guest Customer"}
-                        </p>
-                        <p className="text-[11px] text-muted-foreground">
-                          {order.customer.phone ||
-                            (order.customer.table ? `Table ${order.customer.table}` : "")}
-                        </p>
+              return (
+                <article key={order.id} className="surface-card p-4 space-y-3 transition-colors">
+                  {/* Top Row: Order #, Elapsed time, and Method/Status */}
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-display font-semibold text-base text-foreground">
+                          {order.number}
+                        </span>
+                        <StatusBadge status={order.status} />
                       </div>
-                    </TableCell>
-                    <TableCell>
-                      <MethodBadge method={order.method} />
-                    </TableCell>
-                    <TableCell>
-                      <StatusBadge status={order.status} />
-                    </TableCell>
-                    <TableCell>
-                      <span className="font-medium text-foreground">
-                        {order.items.reduce((s, i) => s + i.quantity, 0)} item(s)
+                      <span className="text-[11px] text-muted-foreground flex items-center gap-1 mt-0.5">
+                        <Clock className="size-3" />
+                        {formatElapsed(order.createdAt)}
                       </span>
-                    </TableCell>
-                    <TableCell className="font-semibold text-primary">
-                      {formatETB(order.total)}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground whitespace-nowrap">
-                      {formatElapsed(order.createdAt)}
-                    </TableCell>
-                    <TableCell className="text-right space-x-1.5 whitespace-nowrap">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-7 text-xs px-2"
-                        onClick={() => setSelectedOrderId(order.id)}
-                      >
-                        <Eye className="size-3 mr-1" /> View
-                      </Button>
+                    </div>
+                    <MethodBadge method={order.method} />
+                  </div>
 
-                      {next && (
+                  {/* Customer Info & Table / Address */}
+                  <div className="text-xs text-muted-foreground border-t border-border/40 pt-2 space-y-0.5">
+                    <p className="font-medium text-foreground">
+                      {order.customer.name || "Guest Customer"}
+                    </p>
+                    {order.customer.phone && (
+                      <p className="flex items-center gap-1 text-[11px]">
+                        <Phone className="size-2.5 text-muted-foreground" />
+                        <span>{order.customer.phone}</span>
+                      </p>
+                    )}
+                    {order.method === "dine-in" && order.customer.table && (
+                      <p className="text-[11px] font-mono text-primary font-medium">
+                        Table #{order.customer.table}
+                      </p>
+                    )}
+                    {order.method === "delivery" && order.customer.address && (
+                      <p className="truncate flex items-center gap-1 text-[11px]">
+                        <MapPin className="size-2.5 text-primary shrink-0" />
+                        <span className="truncate">{order.customer.address}</span>
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Items Summary & Financial Total */}
+                  <div className="flex items-center justify-between text-xs border-t border-border/40 pt-2">
+                    <span className="text-muted-foreground">
+                      {order.items.reduce((s, i) => s + i.quantity, 0)} item(s)
+                    </span>
+                    <div className="text-right">
+                      <span className="text-[10px] text-muted-foreground uppercase mr-1.5">
+                        Total
+                      </span>
+                      <span className="font-semibold text-sm text-primary">
+                        {formatETB(order.total)}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Action Buttons: View Details & Advance Status */}
+                  <div className="flex items-center gap-2 pt-1 border-t border-border/40">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="flex-1 h-9 text-xs gap-1.5"
+                      onClick={() => setSelectedOrderId(order.id)}
+                    >
+                      <Eye className="size-3.5" />
+                      <span>View Details</span>
+                    </Button>
+
+                    {next && (
+                      <Button
+                        size="sm"
+                        className="flex-1 h-9 text-xs gap-1.5"
+                        disabled={isUpdating}
+                        onClick={() => handleAdvanceStatus(order)}
+                      >
+                        {isUpdating ? (
+                          <RefreshCw className="size-3.5 animate-spin" />
+                        ) : (
+                          <>
+                            <span className="truncate">{getNextActionLabel(order)}</span>
+                            <ArrowRight className="size-3.5 shrink-0" />
+                          </>
+                        )}
+                      </Button>
+                    )}
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+
+          {/* Desktop Table (hidden md:block) */}
+          <div className="surface-card overflow-hidden hidden md:block">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-muted/40 text-xs">
+                  <TableHead className="w-24">Order #</TableHead>
+                  <TableHead>Customer</TableHead>
+                  <TableHead>Type</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Items</TableHead>
+                  <TableHead>Total</TableHead>
+                  <TableHead>Time</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody className="text-xs">
+                {filteredOrders.map((order) => {
+                  const next = getNextStatus(order);
+                  const isUpdating = updatingId === order.id;
+
+                  return (
+                    <TableRow key={order.id} className="hover:bg-muted/30 transition-colors">
+                      <TableCell className="font-display font-semibold text-foreground">
+                        {order.number}
+                      </TableCell>
+                      <TableCell>
+                        <div>
+                          <p className="font-medium text-foreground">
+                            {order.customer.name || "Guest Customer"}
+                          </p>
+                          <p className="text-[11px] text-muted-foreground">
+                            {order.customer.phone ||
+                              (order.customer.table ? `Table ${order.customer.table}` : "")}
+                          </p>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <MethodBadge method={order.method} />
+                      </TableCell>
+                      <TableCell>
+                        <StatusBadge status={order.status} />
+                      </TableCell>
+                      <TableCell>
+                        <span className="font-medium text-foreground">
+                          {order.items.reduce((s, i) => s + i.quantity, 0)} item(s)
+                        </span>
+                      </TableCell>
+                      <TableCell className="font-semibold text-primary">
+                        {formatETB(order.total)}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground whitespace-nowrap">
+                        {formatElapsed(order.createdAt)}
+                      </TableCell>
+                      <TableCell className="text-right space-x-1.5 whitespace-nowrap">
                         <Button
+                          variant="outline"
                           size="sm"
-                          className="h-7 text-xs px-2.5"
-                          disabled={isUpdating}
-                          onClick={() => handleAdvanceStatus(order)}
+                          className="h-7 text-xs px-2"
+                          onClick={() => setSelectedOrderId(order.id)}
                         >
-                          {isUpdating ? (
-                            <RefreshCw className="size-3 animate-spin" />
-                          ) : (
-                            getNextActionLabel(order)
-                          )}
+                          <Eye className="size-3 mr-1" /> View
                         </Button>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
+
+                        {next && (
+                          <Button
+                            size="sm"
+                            className="h-7 text-xs px-2.5"
+                            disabled={isUpdating}
+                            onClick={() => handleAdvanceStatus(order)}
+                          >
+                            {isUpdating ? (
+                              <RefreshCw className="size-3 animate-spin" />
+                            ) : (
+                              getNextActionLabel(order)
+                            )}
+                          </Button>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </div>
         </div>
       )}
 
@@ -779,8 +913,8 @@ function AdminOrdersPage() {
       <Sheet open={!!selectedOrder} onOpenChange={(open) => !open && setSelectedOrderId(null)}>
         {selectedOrder && (
           <SheetContent className="w-full sm:max-w-lg overflow-y-auto">
-            <SheetHeader className="border-b border-border pb-4 text-left">
-              <div className="flex items-center justify-between">
+            <SheetHeader className="border-b border-border pb-4 text-left pr-8">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <SheetTitle className="font-display text-xl font-bold">
                   Order {selectedOrder.number}
                 </SheetTitle>
@@ -811,12 +945,18 @@ function AdminOrdersPage() {
                   {getNextStatus(selectedOrder) && (
                     <Button
                       size="sm"
-                      className="w-full h-8 text-xs font-medium gap-1.5"
+                      className="w-full h-10 sm:h-9 text-xs font-medium gap-1.5"
                       disabled={updatingId === selectedOrder.id}
                       onClick={() => handleAdvanceStatus(selectedOrder)}
                     >
-                      <span>Advance to: {getNextActionLabel(selectedOrder)}</span>
-                      <ArrowRight className="size-3.5" />
+                      {updatingId === selectedOrder.id ? (
+                        <RefreshCw className="size-3.5 animate-spin" />
+                      ) : (
+                        <>
+                          <span>Advance to: {getNextActionLabel(selectedOrder)}</span>
+                          <ArrowRight className="size-3.5" />
+                        </>
+                      )}
                     </Button>
                   )}
 
@@ -829,7 +969,7 @@ function AdminOrdersPage() {
                         handleSetExplicitStatus(selectedOrder.id, val as OrderStatus)
                       }
                     >
-                      <SelectTrigger className="h-7 text-xs flex-1">
+                      <SelectTrigger className="h-9 sm:h-8 text-xs flex-1">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -894,11 +1034,13 @@ function AdminOrdersPage() {
                   {selectedOrder.method === "delivery" && (
                     <div className="col-span-2 space-y-1">
                       <dt className="text-muted-foreground">Delivery Destination & Distance</dt>
-                      <dd className="font-medium text-foreground mt-0.5 flex items-start justify-between gap-2">
-                        <div className="flex items-start gap-1.5">
+                      <dd className="font-medium text-foreground mt-0.5 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
+                        <div className="flex items-start gap-1.5 min-w-0">
                           <MapPin className="size-3.5 text-primary shrink-0 mt-0.5" />
-                          <div>
-                            <p>{selectedOrder.customer.address || "No address specified"}</p>
+                          <div className="min-w-0">
+                            <p className="break-words">
+                              {selectedOrder.customer.address || "No address specified"}
+                            </p>
                             {selectedOrder.distanceKm !== null &&
                               selectedOrder.distanceKm !== undefined && (
                                 <p className="text-[11px] text-muted-foreground mt-0.5">
@@ -924,7 +1066,7 @@ function AdminOrdersPage() {
                               href={`https://www.google.com/maps/search/?api=1&query=${selectedOrder.customer.latitude},${selectedOrder.customer.longitude}`}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1 text-[11px] font-semibold text-primary hover:underline shrink-0 bg-primary/10 px-2 py-1 rounded-md"
+                              className="inline-flex items-center gap-1 text-[11px] font-semibold text-primary hover:underline shrink-0 bg-primary/10 px-2.5 py-1.5 rounded-md self-start"
                             >
                               <ExternalLink className="size-3" />
                               <span>View Map</span>

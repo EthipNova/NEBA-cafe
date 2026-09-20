@@ -486,78 +486,87 @@ function AdminPromotions() {
   return (
     <div className="space-y-8">
       {/* 1. HEADER & OVERVIEW */}
-      <header className="flex flex-wrap items-center justify-between gap-4">
+      <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="font-display text-3xl font-semibold">Promotions management</h1>
+          <h1 className="font-display text-2xl sm:text-3xl font-semibold">Promotions management</h1>
           <p className="text-sm text-muted-foreground mt-1">
             Create, schedule, and oversee café discount campaigns and menu promotions.
           </p>
         </div>
 
-        <Button onClick={openCreateDialog} className="gap-1.5 shadow-sm">
+        <Button
+          onClick={openCreateDialog}
+          className="w-full sm:w-auto h-11 sm:h-9 gap-1.5 shadow-sm"
+        >
           <Plus className="size-4" aria-hidden />
           <span>Create Promotion</span>
         </Button>
       </header>
 
       {/* 2. SUMMARY METRIC CARDS */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-2.5 sm:gap-4 lg:grid-cols-4">
         {/* Active Promotions */}
-        <div className="surface-card p-5 space-y-1.5 border-l-4 border-l-success">
+        <div className="surface-card p-3.5 sm:p-5 space-y-1 sm:space-y-1.5 border-l-4 border-l-success">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Active Promotions
+            <span className="text-[11px] sm:text-xs font-semibold uppercase tracking-wider text-muted-foreground truncate">
+              Active Promos
             </span>
-            <div className="flex size-8 items-center justify-center rounded-lg bg-success/10 text-success">
-              <CheckCircle2 className="size-4" aria-hidden />
+            <div className="flex size-7 sm:size-8 items-center justify-center rounded-lg bg-success/10 text-success shrink-0">
+              <CheckCircle2 className="size-3.5 sm:size-4" aria-hidden />
             </div>
           </div>
-          <p className="font-display text-2xl font-bold text-foreground">{activeCount}</p>
-          <p className="text-xs text-muted-foreground">Currently running in café</p>
+          <p className="font-display text-xl sm:text-2xl font-bold text-foreground">
+            {activeCount}
+          </p>
+          <p className="text-[11px] sm:text-xs text-muted-foreground truncate">Currently running</p>
         </div>
 
         {/* Scheduled */}
-        <div className="surface-card p-5 space-y-1.5 border-l-4 border-l-primary">
+        <div className="surface-card p-3.5 sm:p-5 space-y-1 sm:space-y-1.5 border-l-4 border-l-primary">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            <span className="text-[11px] sm:text-xs font-semibold uppercase tracking-wider text-muted-foreground truncate">
               Scheduled
             </span>
-            <div className="flex size-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
-              <Calendar className="size-4" aria-hidden />
+            <div className="flex size-7 sm:size-8 items-center justify-center rounded-lg bg-primary/10 text-primary shrink-0">
+              <Calendar className="size-3.5 sm:size-4" aria-hidden />
             </div>
           </div>
-          <p className="font-display text-2xl font-bold text-foreground">{scheduledCount}</p>
-          <p className="text-xs text-muted-foreground">Upcoming promotional offers</p>
+          <p className="font-display text-xl sm:text-2xl font-bold text-foreground">
+            {scheduledCount}
+          </p>
+          <p className="text-[11px] sm:text-xs text-muted-foreground truncate">Upcoming offers</p>
         </div>
 
         {/* Expired */}
-        <div className="surface-card p-5 space-y-1.5 border-l-4 border-l-muted">
+        <div className="surface-card p-3.5 sm:p-5 space-y-1 sm:space-y-1.5 border-l-4 border-l-muted">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            <span className="text-[11px] sm:text-xs font-semibold uppercase tracking-wider text-muted-foreground truncate">
               Expired
             </span>
-            <div className="flex size-8 items-center justify-center rounded-lg bg-muted text-muted-foreground">
-              <Clock className="size-4" aria-hidden />
+            <div className="flex size-7 sm:size-8 items-center justify-center rounded-lg bg-muted text-muted-foreground shrink-0">
+              <Clock className="size-3.5 sm:size-4" aria-hidden />
             </div>
           </div>
-          <p className="font-display text-2xl font-bold text-foreground">{expiredCount}</p>
-          <p className="text-xs text-muted-foreground">Past completed campaigns</p>
+          <p className="font-display text-xl sm:text-2xl font-bold text-foreground">
+            {expiredCount}
+          </p>
+          <p className="text-[11px] sm:text-xs text-muted-foreground truncate">Past campaigns</p>
         </div>
 
         {/* Products on Promotion */}
-        <div className="surface-card p-5 space-y-1.5 border-l-4 border-l-amber-500">
+        <div className="surface-card p-3.5 sm:p-5 space-y-1 sm:space-y-1.5 border-l-4 border-l-amber-500">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Products on Offer
+            <span className="text-[11px] sm:text-xs font-semibold uppercase tracking-wider text-muted-foreground truncate">
+              On Offer
             </span>
-            <div className="flex size-8 items-center justify-center rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400">
-              <ShoppingBag className="size-4" aria-hidden />
+            <div className="flex size-7 sm:size-8 items-center justify-center rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400 shrink-0">
+              <ShoppingBag className="size-3.5 sm:size-4" aria-hidden />
             </div>
           </div>
-          <p className="font-display text-2xl font-bold text-foreground">
+          <p className="font-display text-xl sm:text-2xl font-bold text-foreground">
             {productsOnPromotionCount}
           </p>
-          <p className="text-xs text-muted-foreground">Distinct products targeted</p>
+          <p className="text-[11px] sm:text-xs text-muted-foreground truncate">Products targeted</p>
         </div>
       </div>
 
@@ -604,12 +613,17 @@ function AdminPromotions() {
         </div>
 
         {/* Secondary controls row: Sorting & Reset */}
-        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/50 pt-3 text-xs text-muted-foreground">
-          <div className="flex items-center gap-2">
-            <ArrowUpDown className="size-3.5 text-muted-foreground" aria-hidden />
-            <span>Sort by:</span>
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 border-t border-border/50 pt-3 text-xs text-muted-foreground">
+          <div className="flex items-center justify-between sm:justify-start gap-2">
+            <div className="flex items-center gap-1.5 shrink-0">
+              <ArrowUpDown className="size-3.5 text-muted-foreground" aria-hidden />
+              <span>Sort by:</span>
+            </div>
             <Select value={sortBy} onValueChange={setSortBy}>
-              <SelectTrigger className="h-7 text-xs w-[140px]" aria-label="Sort promotions">
+              <SelectTrigger
+                className="h-8 text-xs w-[140px] sm:w-[150px]"
+                aria-label="Sort promotions"
+              >
                 <SelectValue placeholder="Sort order" />
               </SelectTrigger>
               <SelectContent>
@@ -623,7 +637,7 @@ function AdminPromotions() {
             </Select>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center justify-between sm:justify-end gap-3">
             <span>
               Showing <strong>{sortedPromotions.length}</strong> of{" "}
               <strong>{safePromos.length}</strong> promotions
@@ -632,10 +646,10 @@ function AdminPromotions() {
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-7 text-xs px-2 gap-1 text-primary hover:text-primary"
+                className="h-8 text-xs px-2.5 gap-1 text-primary hover:text-primary shrink-0"
                 onClick={resetFilters}
               >
-                <RotateCcw className="size-3" aria-hidden />
+                <RotateCcw className="size-3.5" aria-hidden />
                 Reset filters
               </Button>
             )}
@@ -699,7 +713,7 @@ function AdminPromotions() {
             return (
               <div
                 key={promo.id}
-                className="surface-card p-5 flex flex-col justify-between space-y-4 hover:border-primary/40 transition-colors"
+                className="surface-card p-4 sm:p-5 flex flex-col justify-between space-y-4 hover:border-primary/40 transition-colors"
               >
                 <div className="space-y-3">
                   <div className="flex items-start justify-between gap-2">
@@ -756,29 +770,29 @@ function AdminPromotions() {
                   <Button
                     variant="outline"
                     size="sm"
-                    className="h-8 text-xs px-2.5 font-medium flex-1"
+                    className="h-9 text-xs px-3 font-medium flex-1"
                     onClick={() => setSelectedDetailsId(promo.id)}
                   >
-                    <Eye className="size-3.5 mr-1" aria-hidden />
+                    <Eye className="size-3.5 mr-1.5" aria-hidden />
                     Details
                   </Button>
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="h-8 text-xs px-2 text-muted-foreground hover:text-foreground"
+                    className="size-9 p-0 text-muted-foreground hover:text-foreground shrink-0"
                     onClick={() => openEditDialog(promo)}
                     aria-label={`Edit ${promo.name}`}
                   >
-                    <Pencil className="size-3.5" aria-hidden />
+                    <Pencil className="size-4" aria-hidden />
                   </Button>
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="h-8 text-xs px-2 text-destructive hover:text-destructive hover:bg-destructive/10"
+                    className="size-9 p-0 text-destructive hover:text-destructive hover:bg-destructive/10 shrink-0"
                     onClick={() => setDeletingId(promo.id)}
                     aria-label={`Delete ${promo.name}`}
                   >
-                    <Trash2 className="size-3.5" aria-hidden />
+                    <Trash2 className="size-4" aria-hidden />
                   </Button>
                 </div>
               </div>
@@ -789,7 +803,7 @@ function AdminPromotions() {
 
       {/* 6. CREATE / EDIT PROMOTION DIALOG */}
       <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
-        <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto p-4 sm:p-6">
           <DialogHeader>
             <DialogTitle className="font-display text-xl">
               {editingPromotion ? "Edit Promotion" : "Create New Promotion"}
@@ -808,6 +822,7 @@ function AdminPromotions() {
                 placeholder="e.g. Afternoon Coffee Hours, Ramadan Special"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
+                className="h-10 sm:h-9 text-sm"
               />
               {formErrors.name && (
                 <p className="text-xs text-destructive flex items-center gap-1">
@@ -836,7 +851,7 @@ function AdminPromotions() {
                   value={discountType}
                   onValueChange={(val) => setDiscountType(val as DiscountType)}
                 >
-                  <SelectTrigger className="h-9">
+                  <SelectTrigger className="h-10 sm:h-9 text-sm">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -857,6 +872,7 @@ function AdminPromotions() {
                   max={discountType === "percentage" ? "100" : undefined}
                   value={discountValue}
                   onChange={(e) => setDiscountValue(e.target.value)}
+                  className="h-10 sm:h-9 text-sm"
                 />
                 {formErrors.discountValue && (
                   <p className="text-xs text-destructive flex items-center gap-1">
@@ -875,6 +891,7 @@ function AdminPromotions() {
                   type="date"
                   value={startDate}
                   onChange={(e) => setStartDate(e.target.value)}
+                  className="h-10 sm:h-9 text-sm"
                 />
                 {formErrors.startDate && (
                   <p className="text-xs text-destructive">{formErrors.startDate}</p>
@@ -888,6 +905,7 @@ function AdminPromotions() {
                   type="date"
                   value={endDate}
                   onChange={(e) => setEndDate(e.target.value)}
+                  className="h-10 sm:h-9 text-sm"
                 />
                 {formErrors.endDate && (
                   <p className="text-xs text-destructive">{formErrors.endDate}</p>
@@ -902,7 +920,7 @@ function AdminPromotions() {
                 value={statusMode}
                 onValueChange={(val) => setStatusMode(val as "auto" | "draft")}
               >
-                <SelectTrigger className="h-9">
+                <SelectTrigger className="h-10 sm:h-9 text-sm">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -921,6 +939,7 @@ function AdminPromotions() {
                 placeholder="e.g. 250"
                 value={minOrderAmount}
                 onChange={(e) => setMinOrderAmount(e.target.value)}
+                className="h-10 sm:h-9 text-sm"
               />
               {formErrors.minOrderAmount && (
                 <p className="text-xs text-destructive">{formErrors.minOrderAmount}</p>
@@ -930,7 +949,7 @@ function AdminPromotions() {
             {/* Target Products Scope */}
             <div className="space-y-3 border-t border-border/60 pt-3">
               <Label>Apply To *</Label>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-3 gap-1.5 sm:gap-2">
                 <button
                   type="button"
                   onClick={() => {
@@ -939,13 +958,13 @@ function AdminPromotions() {
                     setSelectedProductIds([]);
                   }}
                   className={cn(
-                    "flex flex-col items-center justify-center p-2.5 rounded-xl border text-center transition-all cursor-pointer",
+                    "flex flex-col items-center justify-center p-2 sm:p-2.5 min-h-[44px] sm:min-h-[40px] rounded-xl border text-center transition-all cursor-pointer",
                     targetType === "all"
                       ? "border-primary bg-primary/10 text-primary font-semibold shadow-xs"
                       : "border-border bg-card hover:bg-muted/40 text-muted-foreground",
                   )}
                 >
-                  <span className="text-xs">All Products</span>
+                  <span className="text-[11px] sm:text-xs leading-tight">All Products</span>
                 </button>
                 <button
                   type="button"
@@ -954,13 +973,13 @@ function AdminPromotions() {
                     setSelectedProductIds([]);
                   }}
                   className={cn(
-                    "flex flex-col items-center justify-center p-2.5 rounded-xl border text-center transition-all cursor-pointer",
+                    "flex flex-col items-center justify-center p-2 sm:p-2.5 min-h-[44px] sm:min-h-[40px] rounded-xl border text-center transition-all cursor-pointer",
                     targetType === "category"
                       ? "border-primary bg-primary/10 text-primary font-semibold shadow-xs"
                       : "border-border bg-card hover:bg-muted/40 text-muted-foreground",
                   )}
                 >
-                  <span className="text-xs">Category</span>
+                  <span className="text-[11px] sm:text-xs leading-tight">Category</span>
                 </button>
                 <button
                   type="button"
@@ -969,13 +988,13 @@ function AdminPromotions() {
                     setSelectedCategoryId("");
                   }}
                   className={cn(
-                    "flex flex-col items-center justify-center p-2.5 rounded-xl border text-center transition-all cursor-pointer",
+                    "flex flex-col items-center justify-center p-2 sm:p-2.5 min-h-[44px] sm:min-h-[40px] rounded-xl border text-center transition-all cursor-pointer",
                     targetType === "products"
                       ? "border-primary bg-primary/10 text-primary font-semibold shadow-xs"
                       : "border-border bg-card hover:bg-muted/40 text-muted-foreground",
                   )}
                 >
-                  <span className="text-xs">Specific Products</span>
+                  <span className="text-[11px] sm:text-xs leading-tight">Specific Products</span>
                 </button>
               </div>
 
@@ -998,7 +1017,7 @@ function AdminPromotions() {
                     value={selectedCategoryId}
                     onValueChange={(val) => setSelectedCategoryId(val)}
                   >
-                    <SelectTrigger id="promo-category-select" className="h-9">
+                    <SelectTrigger id="promo-category-select" className="h-10 sm:h-9 text-sm">
                       <SelectValue placeholder="Choose a menu category..." />
                     </SelectTrigger>
                     <SelectContent>
@@ -1031,7 +1050,7 @@ function AdminPromotions() {
                   <p className="text-xs text-muted-foreground">
                     Select the products that qualify for this discount:
                   </p>
-                  <div className="max-h-40 overflow-y-auto rounded-lg border border-border p-2 space-y-1 bg-card">
+                  <div className="max-h-48 overflow-y-auto rounded-lg border border-border p-1.5 sm:p-2 space-y-1 bg-card">
                     {availableProducts.length === 0 ? (
                       <p className="text-xs text-muted-foreground p-2 text-center">
                         No menu items found in database.
@@ -1042,7 +1061,7 @@ function AdminPromotions() {
                         return (
                           <label
                             key={p.id}
-                            className="flex items-center gap-2 px-2 py-1.5 text-xs rounded hover:bg-muted/50 cursor-pointer"
+                            className="flex items-center gap-2.5 px-2.5 py-2 min-h-[36px] text-xs rounded-md hover:bg-muted/50 cursor-pointer transition-colors"
                           >
                             <input
                               type="checkbox"
@@ -1054,10 +1073,12 @@ function AdminPromotions() {
                                   setSelectedProductIds((prev) => prev.filter((id) => id !== p.id));
                                 }
                               }}
-                              className="size-3.5 rounded border-border"
+                              className="size-4 shrink-0 rounded border-border"
                             />
-                            <span className="font-medium text-foreground">{p.name}</span>
-                            <span className="text-muted-foreground ml-auto">
+                            <span className="font-medium text-foreground truncate min-w-0">
+                              {p.name}
+                            </span>
+                            <span className="text-muted-foreground ml-auto shrink-0 pl-2 font-medium">
                               {formatETB(p.price)}
                             </span>
                           </label>
@@ -1075,11 +1096,20 @@ function AdminPromotions() {
             </div>
           </div>
 
-          <DialogFooter>
-            <Button variant="outline" disabled={isSubmitting} onClick={() => setIsFormOpen(false)}>
+          <DialogFooter className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 pt-2">
+            <Button
+              variant="outline"
+              disabled={isSubmitting}
+              onClick={() => setIsFormOpen(false)}
+              className="w-full sm:w-auto h-11 sm:h-9"
+            >
               Cancel
             </Button>
-            <Button disabled={isSubmitting} onClick={handleSavePromotion}>
+            <Button
+              disabled={isSubmitting}
+              onClick={handleSavePromotion}
+              className="w-full sm:w-auto h-11 sm:h-9"
+            >
               {isSubmitting ? "Saving…" : editingPromotion ? "Save Changes" : "Create Promotion"}
             </Button>
           </DialogFooter>
@@ -1093,14 +1123,14 @@ function AdminPromotions() {
       >
         <SheetContent
           side="right"
-          className="w-full sm:max-w-md md:max-w-lg overflow-y-auto p-6 flex flex-col gap-6"
+          className="w-full sm:max-w-md md:max-w-lg overflow-y-auto p-5 sm:p-6 flex flex-col gap-6"
         >
           {selectedDetailsPromo ? (
             <>
               {/* Header */}
-              <SheetHeader className="text-left space-y-2 pb-4 border-b border-border">
-                <div className="flex items-center justify-between gap-2 pr-6">
-                  <SheetTitle className="font-display text-2xl font-bold">
+              <SheetHeader className="text-left space-y-2 pb-4 border-b border-border pr-8">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <SheetTitle className="font-display text-xl sm:text-2xl font-bold break-words">
                     {selectedDetailsPromo.name}
                   </SheetTitle>
                   <StatusBadge status={derivePromotionStatus(selectedDetailsPromo)} />
@@ -1297,7 +1327,7 @@ function AdminPromotions() {
               <div className="pt-2 mt-auto border-t border-border flex gap-2">
                 <Button
                   variant="outline"
-                  className="flex-1 gap-1.5"
+                  className="flex-1 h-10 sm:h-9 gap-1.5"
                   onClick={() => {
                     openEditDialog(selectedDetailsPromo);
                     setSelectedDetailsId(null);
@@ -1308,7 +1338,7 @@ function AdminPromotions() {
                 </Button>
                 <Button
                   variant="destructive"
-                  className="flex-1 gap-1.5"
+                  className="flex-1 h-10 sm:h-9 gap-1.5"
                   onClick={() => setDeletingId(selectedDetailsPromo.id)}
                 >
                   <Trash2 className="size-3.5" aria-hidden />

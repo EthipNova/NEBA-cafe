@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { demoBoardOrders, revenueByHour } from "@/lib/admin-data";
 import { formatETB, products as seedProducts, type Product } from "@/lib/menu-data";
 import { methodLabels, readOrders, statusLabels, type Order } from "@/lib/orders";
+import { cn } from "@/lib/utils";
 import { fetchOrders, fetchProducts } from "@/services/api";
 
 export const Route = createFileRoute("/admin/")({
@@ -73,8 +74,8 @@ function AdminDashboard() {
     { label: "Total Orders", value: String(totalOrdersCount) },
     { label: "Active Orders", value: String(activeOrdersCount) },
     { label: "Completed Orders", value: String(completedOrdersCount) },
-    { label: "Total Revenue", value: formatETB(totalRevenueNumber) },
     { label: "Unavailable Items", value: String(unavailable.length) },
+    { label: "Total Revenue", value: formatETB(totalRevenueNumber) },
   ];
 
   const recentOrdersToDisplay =
@@ -91,29 +92,42 @@ function AdminDashboard() {
       : demoBoardOrders;
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6 sm:space-y-8">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="font-display text-3xl font-semibold">Dashboard</h1>
-          <p className="text-sm text-muted-foreground">
+          <h1 className="font-display text-2xl sm:text-3xl font-semibold">Dashboard</h1>
+          <p className="text-xs sm:text-sm text-muted-foreground">
             Live operational overview synced with database.
           </p>
         </div>
       </header>
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-5">
         {dynamicStats.map((s) => (
-          <div key={s.label} className="surface-card p-5">
-            <p className="text-sm text-muted-foreground">{s.label}</p>
-            <p className="mt-2 font-display text-3xl font-semibold">{s.value}</p>
+          <div
+            key={s.label}
+            className={cn(
+              "surface-card p-3.5 sm:p-5",
+              s.label === "Total Revenue" && "col-span-2 sm:col-span-1",
+            )}
+          >
+            <p className="text-xs sm:text-sm text-muted-foreground">{s.label}</p>
+            <p className="mt-1.5 sm:mt-2 font-display text-2xl sm:text-3xl font-semibold tracking-tight">
+              {s.value}
+            </p>
           </div>
         ))}
       </div>
 
-      <div className="grid gap-5 lg:grid-cols-[1.4fr_1fr]">
-        <div className="surface-card p-6">
-          <h2 className="font-display text-lg font-semibold">Revenue by hour</h2>
-          <div className="mt-6 flex h-48 items-end gap-3">
+      <div className="grid gap-4 sm:gap-5 lg:grid-cols-[1.4fr_1fr]">
+        <div className="surface-card p-4 sm:p-6">
+          <div className="flex items-center justify-between">
+            <h2 className="font-display text-base sm:text-lg font-semibold">Revenue by hour</h2>
+            <span className="text-xs font-medium text-muted-foreground">
+              Peak: {formatETB(maxRevenue)}
+            </span>
+          </div>
+          <div className="mt-6 flex h-48 items-end gap-1.5 sm:gap-3">
             {revenueByHour.map((r) => (
               <div key={r.hour} className="flex flex-1 flex-col items-center gap-2">
                 <div
@@ -121,26 +135,33 @@ function AdminDashboard() {
                   style={{ height: `${(r.revenue / maxRevenue) * 100}%` }}
                   title={formatETB(r.revenue)}
                 />
-                <span className="text-xs text-muted-foreground">{r.hour}</span>
+                <span className="text-[11px] sm:text-xs text-muted-foreground">{r.hour}</span>
               </div>
             ))}
           </div>
         </div>
 
-        <div className="surface-card p-6">
-          <h2 className="flex items-center gap-2 font-display text-lg font-semibold">
+        <div className="surface-card p-4 sm:p-6">
+          <h2 className="flex items-center gap-2 font-display text-base sm:text-lg font-semibold">
             <AlertTriangle className="size-4 text-warning" aria-hidden /> Needs attention
           </h2>
-          <ul className="mt-4 space-y-3 text-sm">
+          <ul className="mt-4 space-y-2.5 text-sm">
             {unavailable.length === 0 ? (
               <li className="text-xs text-muted-foreground">
                 All menu items are currently available.
               </li>
             ) : (
               unavailable.slice(0, 5).map((p) => (
-                <li key={p.id} className="flex items-center justify-between">
-                  <span>{p.name}</span>
-                  <Badge variant="outline">Unavailable</Badge>
+                <li key={p.id}>
+                  <Link
+                    to="/admin/availability"
+                    className="flex items-center justify-between gap-2 rounded-md p-1.5 -mx-1.5 transition-colors hover:bg-secondary/60"
+                  >
+                    <span className="truncate text-xs sm:text-sm">{p.name}</span>
+                    <Badge variant="outline" className="shrink-0 text-[11px] sm:text-xs">
+                      Unavailable
+                    </Badge>
+                  </Link>
                 </li>
               ))
             )}
@@ -148,22 +169,30 @@ function AdminDashboard() {
               .filter((o) => o.paymentStatus !== "paid")
               .slice(0, 3)
               .map((o) => (
-                <li key={o.number} className="flex items-center justify-between">
-                  <span>
-                    {o.number} · {methodLabels[o.method]}
-                  </span>
-                  <Badge variant={o.paymentStatus === "failed" ? "destructive" : "secondary"}>
-                    Payment {o.paymentStatus}
-                  </Badge>
+                <li key={o.number}>
+                  <Link
+                    to="/admin/orders"
+                    className="flex items-center justify-between gap-2 rounded-md p-1.5 -mx-1.5 transition-colors hover:bg-secondary/60"
+                  >
+                    <span className="truncate text-xs sm:text-sm">
+                      {o.number} · {methodLabels[o.method]}
+                    </span>
+                    <Badge
+                      variant={o.paymentStatus === "failed" ? "destructive" : "secondary"}
+                      className="shrink-0 text-[11px] sm:text-xs"
+                    >
+                      Payment {o.paymentStatus}
+                    </Badge>
+                  </Link>
                 </li>
               ))}
           </ul>
         </div>
       </div>
 
-      <div className="surface-card overflow-x-auto p-6">
+      <div className="surface-card overflow-x-auto p-4 sm:p-6">
         <div className="flex items-center justify-between">
-          <h2 className="font-display text-lg font-semibold">Recent orders</h2>
+          <h2 className="font-display text-base sm:text-lg font-semibold">Recent orders</h2>
           <Link
             to="/admin/orders"
             className="inline-flex items-center gap-1 text-xs font-medium text-primary transition-colors hover:underline"
@@ -172,7 +201,46 @@ function AdminDashboard() {
             <ArrowRight className="size-3.5" aria-hidden />
           </Link>
         </div>
-        <table className="mt-4 w-full text-sm">
+
+        {/* Mobile Compact Order Cards (< md) */}
+        <div className="mt-4 space-y-2.5 md:hidden">
+          {recentOrdersToDisplay.map((o) => (
+            <div
+              key={o.number}
+              className="rounded-lg border border-border/80 bg-background/60 p-3 transition-colors"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-medium text-sm text-foreground truncate">
+                  {o.number} · {o.customer}
+                </span>
+                <span className="font-display text-sm font-semibold text-foreground shrink-0">
+                  {formatETB(o.total)}
+                </span>
+              </div>
+              <div className="mt-2 flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground capitalize">
+                    {methodLabels[o.method]}
+                  </span>
+                  {o.paymentStatus !== "paid" && (
+                    <Badge
+                      variant={o.paymentStatus === "failed" ? "destructive" : "secondary"}
+                      className="text-[10px] px-1.5 py-0"
+                    >
+                      {o.paymentStatus}
+                    </Badge>
+                  )}
+                </div>
+                <Badge variant="secondary" className="text-xs shrink-0">
+                  {statusLabels[o.status]}
+                </Badge>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Desktop 5-Column Table (md+) */}
+        <table className="mt-4 hidden w-full text-sm md:table">
           <thead className="text-left text-muted-foreground">
             <tr>
               <th className="py-2 font-medium">Order</th>

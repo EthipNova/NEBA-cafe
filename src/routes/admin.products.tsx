@@ -126,7 +126,7 @@ function AdminProducts() {
 
       setCategories(catRes.data || []);
       setProducts(prodRes.data || []);
-    } catch (err: any) {
+    } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to load products");
     } finally {
       setLoading(false);
@@ -268,7 +268,7 @@ function AdminProducts() {
         setDialogOpen(false);
         setEditing(null);
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       if (uploadedStoragePath) {
         await deleteProductImageFromStorage(uploadedStoragePath);
       }
@@ -306,12 +306,12 @@ function AdminProducts() {
     <div className="space-y-6">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="font-display text-3xl font-semibold">Products</h1>
-          <p className="text-sm text-muted-foreground">
+          <h1 className="font-display text-2xl sm:text-3xl font-semibold">Products</h1>
+          <p className="text-xs sm:text-sm text-muted-foreground">
             Create, edit, price and deactivate menu items.
           </p>
         </div>
-        <Button onClick={openNew}>
+        <Button onClick={openNew} className="w-full sm:w-auto h-11 sm:h-9 gap-1.5">
           <Plus className="size-4" /> New product
         </Button>
       </header>
@@ -336,63 +336,139 @@ function AdminProducts() {
         </div>
       ) : (
         <div className="surface-card overflow-x-auto p-2">
-          <table className="w-full min-w-[640px] text-sm">
-            <thead className="text-left text-muted-foreground">
-              <tr>
-                <th className="p-3 font-medium">Product</th>
-                <th className="p-3 font-medium">Category</th>
-                <th className="p-3 font-medium">Price</th>
-                <th className="p-3 font-medium">Active</th>
-                <th className="p-3 text-right font-medium">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {products.length === 0 ? (
-                <tr>
-                  <td colSpan={5} className="p-8 text-center text-muted-foreground">
-                    No products found in the database.
-                  </td>
-                </tr>
-              ) : (
-                products.map((p) => (
-                  <tr key={p.id} className="border-t border-border">
-                    <td className="p-3">
-                      <div className="flex items-center gap-3">
+          {/* Mobile Product Cards (< md) */}
+          <div className="space-y-3 p-1.5 md:hidden">
+            {products.length === 0 ? (
+              <p className="p-8 text-center text-sm text-muted-foreground">
+                No products found in the database.
+              </p>
+            ) : (
+              products.map((p) => {
+                const categoryName =
+                  categories.find((c) => c.id === p.categoryId)?.name ??
+                  p.categoryName ??
+                  p.categorySlug;
+
+                return (
+                  <div
+                    key={p.id}
+                    className="rounded-lg border border-border/80 bg-background/60 p-3.5 space-y-3 transition-colors"
+                  >
+                    {/* Top Row: Thumbnail, Name, Category, Price & Availability Switch */}
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-start gap-3 min-w-0 flex-1">
                         <ProductThumbnail image={p.image} name={p.name} />
-                        <div>
-                          <p className="font-medium">{p.name}</p>
-                          <p className="line-clamp-1 text-xs text-muted-foreground">
-                            {p.description}
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <h3 className="font-medium text-sm text-foreground truncate">
+                              {p.name}
+                            </h3>
+                            <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                              {categoryName}
+                            </Badge>
+                          </div>
+                          <p className="mt-0.5 font-display text-xs font-semibold text-primary">
+                            {formatETB(p.price)}
                           </p>
                         </div>
                       </div>
-                    </td>
-                    <td className="p-3">
-                      <Badge variant="secondary">
-                        {categories.find((c) => c.id === p.categoryId)?.name ??
-                          p.categoryName ??
-                          p.categorySlug}
-                      </Badge>
-                    </td>
-                    <td className="p-3">{formatETB(p.price)}</td>
-                    <td className="p-3">
-                      <Switch
-                        checked={p.available}
-                        disabled={togglingId === p.id}
-                        aria-label={`Toggle ${p.name}`}
-                        onCheckedChange={(checked) => handleToggleAvailability(p, checked)}
-                      />
-                    </td>
-                    <td className="p-3 text-right">
-                      <Button variant="ghost" size="sm" onClick={() => openEdit(p)}>
-                        <Pencil className="size-4" /> Edit
+                      <div className="shrink-0 pt-0.5 flex flex-col items-end gap-1">
+                        <Switch
+                          checked={p.available}
+                          disabled={togglingId === p.id}
+                          aria-label={`Toggle ${p.name}`}
+                          onCheckedChange={(checked) => handleToggleAvailability(p, checked)}
+                        />
+                        <span className="text-[10px] font-medium text-muted-foreground">
+                          {p.available ? "Active" : "Inactive"}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Middle Row: Description if present */}
+                    {p.description && (
+                      <p className="text-xs text-muted-foreground line-clamp-2 leading-relaxed">
+                        {p.description}
+                      </p>
+                    )}
+
+                    {/* Bottom Row: Action Edit button */}
+                    <div className="pt-2 flex justify-end border-t border-border/40">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => openEdit(p)}
+                        className="h-8 px-3 text-xs gap-1.5"
+                      >
+                        <Pencil className="size-3.5" /> Edit
                       </Button>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          {/* Desktop Table (md+) */}
+          <div className="hidden md:block">
+            <table className="w-full min-w-[640px] text-sm">
+              <thead className="text-left text-muted-foreground">
+                <tr>
+                  <th className="p-3 font-medium">Product</th>
+                  <th className="p-3 font-medium">Category</th>
+                  <th className="p-3 font-medium">Price</th>
+                  <th className="p-3 font-medium">Active</th>
+                  <th className="p-3 text-right font-medium">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {products.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="p-8 text-center text-muted-foreground">
+                      No products found in the database.
                     </td>
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+                ) : (
+                  products.map((p) => (
+                    <tr key={p.id} className="border-t border-border">
+                      <td className="p-3">
+                        <div className="flex items-center gap-3">
+                          <ProductThumbnail image={p.image} name={p.name} />
+                          <div>
+                            <p className="font-medium">{p.name}</p>
+                            <p className="line-clamp-1 text-xs text-muted-foreground">
+                              {p.description}
+                            </p>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="p-3">
+                        <Badge variant="secondary">
+                          {categories.find((c) => c.id === p.categoryId)?.name ??
+                            p.categoryName ??
+                            p.categorySlug}
+                        </Badge>
+                      </td>
+                      <td className="p-3">{formatETB(p.price)}</td>
+                      <td className="p-3">
+                        <Switch
+                          checked={p.available}
+                          disabled={togglingId === p.id}
+                          aria-label={`Toggle ${p.name}`}
+                          onCheckedChange={(checked) => handleToggleAvailability(p, checked)}
+                        />
+                      </td>
+                      <td className="p-3 text-right">
+                        <Button variant="ghost" size="sm" onClick={() => openEdit(p)}>
+                          <Pencil className="size-4" /> Edit
+                        </Button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
@@ -577,24 +653,24 @@ function ProductDialog({
                       {(draft.imageFile.size / 1024).toFixed(0)} KB • Ready to upload
                     </p>
                   )}
-                  <div className="flex items-center gap-2 pt-1">
+                  <div className="flex flex-wrap items-center gap-2 pt-1.5">
                     <Button
                       type="button"
                       variant="outline"
                       size="sm"
                       onClick={() => fileInputRef.current?.click()}
-                      className="h-7 text-xs gap-1"
+                      className="h-9 text-xs gap-1.5 px-3"
                     >
-                      <Upload className="size-3" /> Change image
+                      <Upload className="size-3.5" /> Change image
                     </Button>
                     <Button
                       type="button"
                       variant="ghost"
                       size="sm"
                       onClick={handleRemoveImage}
-                      className="h-7 text-xs gap-1 text-destructive hover:text-destructive hover:bg-destructive/10"
+                      className="h-9 text-xs gap-1.5 px-3 text-destructive hover:text-destructive hover:bg-destructive/10"
                     >
-                      <Trash2 className="size-3" /> Remove
+                      <Trash2 className="size-3.5" /> Remove
                     </Button>
                   </div>
                 </div>
