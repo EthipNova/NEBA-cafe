@@ -7,6 +7,7 @@ import {
   LayoutDashboard,
   LogOut,
   Mail,
+  Menu,
   Package,
   Settings,
   ShoppingBag,
@@ -21,6 +22,14 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet";
 import { applyTheme, readSettings } from "@/lib/settings";
 import { supabase, type UserRole } from "@/lib/supabase";
 import { getInitials, type AdminUserData } from "@/lib/admin-account";
@@ -129,6 +138,7 @@ function AdminLayout() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   useEffect(() => {
     applyTheme(readSettings().theme);
@@ -397,29 +407,114 @@ function AdminLayout() {
         </div>
       </aside>
 
-      <div className="flex-1">
-        <div className="flex gap-2 overflow-x-auto bg-sidebar p-2 text-sidebar-foreground md:hidden">
-          {nav.map((n) => (
-            <Link
-              key={n.label}
-              to={n.to}
-              activeOptions={{ exact: n.exact }}
-              activeProps={{ className: "bg-sidebar-accent" }}
-              className="whitespace-nowrap rounded-lg px-3 py-2 text-sm"
-            >
-              {n.label}
-            </Link>
-          ))}
-          <Link
-            to="/"
-            activeOptions={{ exact: true }}
-            className="whitespace-nowrap rounded-lg px-3 py-2 text-sm flex items-center gap-1.5 opacity-80 hover:opacity-100"
-          >
-            <Globe className="size-4" aria-hidden />
-            View Website
+      <div className="flex-1 min-w-0 flex flex-col">
+        {/* Mobile Header */}
+        <header className="sticky top-0 z-40 flex h-14 w-full items-center justify-between border-b border-sidebar-border bg-sidebar px-4 text-sidebar-foreground md:hidden">
+          <Link to="/admin" className="flex items-center">
+            <span className="font-display text-lg font-semibold text-sidebar-foreground">NEBA</span>
+            <span className="ml-2 text-[10px] uppercase tracking-[0.2em] opacity-70">Console</span>
           </Link>
-        </div>
-        <div className="p-4 sm:p-8">
+
+          <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
+            <SheetTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-10 text-sidebar-foreground hover:bg-sidebar-accent"
+                aria-label="Open admin navigation menu"
+              >
+                <Menu className="size-5" aria-hidden />
+              </Button>
+            </SheetTrigger>
+            <SheetContent
+              side="left"
+              className="w-72 max-w-[85vw] bg-sidebar text-sidebar-foreground border-sidebar-border p-4 flex flex-col justify-between overflow-y-auto"
+            >
+              <div>
+                <SheetHeader className="text-left pb-3 border-b border-sidebar-border pr-6">
+                  <SheetTitle className="font-display text-lg font-semibold text-sidebar-foreground flex items-center">
+                    <span>NEBA</span>
+                    <span className="ml-2 text-[10px] uppercase tracking-[0.2em] opacity-70">
+                      Console
+                    </span>
+                  </SheetTitle>
+                  <SheetDescription className="sr-only">Admin navigation menu</SheetDescription>
+                </SheetHeader>
+
+                <nav className="mt-3 space-y-1" aria-label="Mobile admin navigation">
+                  {nav.map((n) => (
+                    <Link
+                      key={n.label}
+                      to={n.to}
+                      activeOptions={{ exact: n.exact }}
+                      activeProps={{
+                        className: "bg-sidebar-accent text-sidebar-accent-foreground font-medium",
+                      }}
+                      onClick={() => setMobileNavOpen(false)}
+                      className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm opacity-90 transition-colors hover:bg-sidebar-accent"
+                    >
+                      <n.icon className="size-4 shrink-0" aria-hidden />
+                      <span>{n.label}</span>
+                    </Link>
+                  ))}
+                </nav>
+              </div>
+
+              <div className="border-t border-sidebar-border pt-3 space-y-2 mt-4">
+                <Link
+                  to="/"
+                  activeOptions={{ exact: true }}
+                  onClick={() => setMobileNavOpen(false)}
+                  className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-sidebar-foreground opacity-85 transition-colors hover:bg-sidebar-accent hover:opacity-100"
+                >
+                  <Globe className="size-4 shrink-0" aria-hidden />
+                  <span>View Website</span>
+                </Link>
+                <div className="border-t border-sidebar-border" />
+                <Link
+                  to="/admin/account"
+                  activeProps={{ className: "bg-sidebar-accent" }}
+                  onClick={() => setMobileNavOpen(false)}
+                  className="flex items-center gap-3 rounded-lg p-2 transition-colors hover:bg-sidebar-accent group"
+                  title="Manage account profile"
+                >
+                  <Avatar className="size-9 border border-sidebar-border shrink-0">
+                    {adminUser?.avatarUrl && (
+                      <AvatarImage
+                        src={adminUser.avatarUrl}
+                        alt={adminUser.fullName || adminUser.email}
+                      />
+                    )}
+                    <AvatarFallback className="bg-primary/20 text-primary text-xs font-semibold">
+                      {getInitials(adminUser?.fullName, adminUser?.email)}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="flex-1 min-w-0">
+                    <p className="truncate text-xs font-medium text-sidebar-foreground group-hover:text-primary transition-colors">
+                      {adminUser?.fullName || adminUser?.email || "Admin Account"}
+                    </p>
+                    <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">
+                      {adminUser?.role || role}
+                    </p>
+                  </div>
+                </Link>
+                <Button
+                  variant="ghost"
+                  disabled={loading}
+                  className="w-full justify-start text-sidebar-foreground hover:bg-sidebar-accent text-xs h-9 px-3"
+                  onClick={() => {
+                    setMobileNavOpen(false);
+                    void handleSignOut();
+                  }}
+                >
+                  <LogOut className="size-3.5 mr-2 shrink-0" /> Sign out
+                </Button>
+              </div>
+            </SheetContent>
+          </Sheet>
+        </header>
+
+        <div className="p-4 sm:p-8 flex-1">
           <Outlet />
         </div>
       </div>
