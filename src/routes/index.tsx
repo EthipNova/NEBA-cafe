@@ -247,15 +247,21 @@ function Home() {
           <div className="grid items-center gap-12 lg:grid-cols-12 lg:gap-16">
             {/* Left Column: Editorial Headline & Actions */}
             <div className="flex flex-col justify-center space-y-6 text-espresso-foreground lg:col-span-7">
-              <div className="rise-in overflow-hidden rounded-full border border-espresso-foreground/20 bg-espresso/50 shadow-xs w-fit">
-                <img
-                  src={hero}
-                  alt="Freshly prepared burger at NEBA CafÃ©"
-                  className="h-10 w-28 object-cover"
-                />
+              <div className="rise-in inline-flex items-center gap-2.5 rounded-full border border-espresso-foreground/20 bg-espresso/60 py-1 pl-1 pr-3.5 shadow-xs backdrop-blur-md w-fit">
+                <div className="overflow-hidden rounded-full border border-espresso-foreground/20 size-8 sm:size-9 shrink-0">
+                  <img
+                    src={hero}
+                    alt="Freshly prepared burger at NEBA CafÃ©"
+                    className="size-full object-cover"
+                  />
+                </div>
+                <div className="flex items-center gap-1.5 text-xs font-medium tracking-wide text-espresso-foreground/90">
+                  <span className="size-1.5 rounded-full bg-primary animate-pulse" aria-hidden />
+                  <span>Freshly Prepared Daily</span>
+                </div>
               </div>
 
-              <h1 className="rise-in [animation-delay:100ms] font-display text-4xl font-semibold leading-[1.05] tracking-tight sm:text-5xl lg:text-6xl text-espresso-foreground max-w-2xl">
+              <h1 className="rise-in [animation-delay:100ms] font-display text-4xl font-semibold leading-[1.12] sm:leading-[1.05] tracking-tight sm:text-5xl lg:text-6xl text-espresso-foreground max-w-2xl">
                 Good Food. Great Moments. Simply NEBA.
               </h1>
 
@@ -264,11 +270,11 @@ function Home() {
                 powered by modern technology.
               </p>
 
-              <div className="rise-in [animation-delay:300ms] flex flex-wrap items-center gap-4 pt-2">
+              <div className="rise-in [animation-delay:300ms] flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 pt-2 w-full sm:w-auto">
                 <Button
                   asChild
                   size="lg"
-                  className="group rounded-full bg-primary px-8 text-primary-foreground shadow-lg shadow-primary/25 transition-all duration-300 hover:-translate-y-0.5 hover:bg-primary/90 hover:shadow-primary/40"
+                  className="group w-full sm:w-auto rounded-full bg-primary px-8 text-primary-foreground shadow-lg shadow-primary/25 transition-all duration-300 hover:-translate-y-0.5 hover:bg-primary/90 hover:shadow-primary/40"
                 >
                   <Link to="/menu">
                     Order Now
@@ -283,9 +289,9 @@ function Home() {
                   asChild
                   size="lg"
                   variant="secondary"
-                  className="rounded-full border border-espresso-foreground/20 bg-espresso-foreground/15 px-8 text-espresso-foreground backdrop-blur-md transition-all duration-300 hover:-translate-y-0.5 hover:bg-espresso-foreground/25"
+                  className="w-full sm:w-auto rounded-full border border-espresso-foreground/20 bg-espresso-foreground/15 px-8 text-espresso-foreground backdrop-blur-md transition-all duration-300 hover:-translate-y-0.5 hover:bg-espresso-foreground/25"
                 >
-                  <Link to="/menu">Explore Menu</Link>
+                  <a href="#categories">Explore Menu</a>
                 </Button>
               </div>
             </div>
@@ -303,7 +309,7 @@ function Home() {
                 <div className="relative aspect-[4/3] w-full overflow-hidden rounded-2xl border border-espresso-foreground/20 bg-espresso/60 shadow-[var(--shadow-lift)] backdrop-blur-md transition-all duration-700 ease-out [transform-style:preserve-3d] group-hover:[transform:rotateX(2deg)_rotateY(-2deg)_translateY(-4px)] motion-reduce:transform-none">
                   <img
                     src={heroImgSrc}
-                    alt="Freshly prepared culinary dishes at NEBA CafÃ©"
+                    alt="Freshly prepared culinary dishes at NEBA Café"
                     width={800}
                     height={600}
                     className="size-full object-cover transition-transform duration-700 ease-out group-hover:scale-[1.04] motion-reduce:transform-none"
@@ -321,9 +327,9 @@ function Home() {
         </div>
       </section>
 
-      <Section>
+      <Section id="categories" className="scroll-mt-20">
         <SectionHeading eyebrow="Categories" title="Find what you're craving" />
-        <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+        <div className="mt-6 sm:mt-8 grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-5">
           {categoriesList
             .filter((c) => c && c.active !== false)
             .map((c) => (
@@ -331,21 +337,37 @@ function Home() {
                 key={c.id}
                 to="/menu/$category"
                 params={{ category: c.slug }}
-                className="surface-card hover-lift flex flex-col gap-1 p-5"
+                className="surface-card hover-lift flex flex-col justify-between p-3.5 sm:p-5 transition-all duration-300"
               >
-                {(() => {
-                  const catImg = categoryImages[c.slug];
-                  return catImg ? (
-                    <img
-                      src={catImg.src}
-                      alt={catImg.alt}
-                      className="mb-3 h-16 w-full object-contain object-left"
-                    />
-                  ) : null;
-                })()}
-                <span className="font-display text-lg font-semibold">{c.name}</span>
-                <span className="text-sm text-muted-foreground">{c.tagline}</span>
-                <ArrowRight className="mt-4 size-4 text-primary" />
+                <div>
+                  {(() => {
+                    const catImg = categoryImages[c.slug];
+                    if (catImg) {
+                      return (
+                        <div className="mb-2 sm:mb-3 flex h-12 sm:h-16 w-full items-center justify-center sm:justify-start">
+                          <img
+                            src={catImg.src}
+                            alt={catImg.alt}
+                            className="h-full w-full object-contain object-center sm:object-left"
+                          />
+                        </div>
+                      );
+                    }
+                    const CatIcon = getCategoryIcon(c.slug);
+                    return (
+                      <div className="mb-2 sm:mb-3 flex h-12 sm:h-16 w-full items-center justify-center sm:justify-start text-primary">
+                        <CatIcon className="size-7 sm:size-9" />
+                      </div>
+                    );
+                  })()}
+                  <span className="block font-display text-sm font-semibold tracking-tight leading-tight sm:text-lg">
+                    {c.name}
+                  </span>
+                  <span className="mt-0.5 block text-xs text-muted-foreground line-clamp-1 sm:mt-1 sm:text-sm">
+                    {c.tagline}
+                  </span>
+                </div>
+                <ArrowRight className="mt-3 size-3.5 text-primary self-end sm:mt-4 sm:size-4 sm:self-start" />
               </Link>
             ))}
         </div>
@@ -355,7 +377,7 @@ function Home() {
           SECTION 3 â€” FEATURED MENU
           Enhanced hierarchy & spacing around the existing ProductCard
          ---------------------------------------------------------------------- */}
-      <Section className="pt-0 pb-16 sm:pb-20">
+      <Section className="pt-0 pb-10 sm:pb-16 sm:pb-20">
         <div className="flex flex-wrap items-end justify-between gap-4">
           <SectionHeading
             eyebrow="Featured"
@@ -374,7 +396,7 @@ function Home() {
           </Button>
         </div>
 
-        <div className="mt-10 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="mt-6 sm:mt-10 grid grid-cols-2 gap-3 sm:gap-6 lg:grid-cols-3">
           {displayFeatured.map((p) => (
             <ProductCard key={p.id} product={p} />
           ))}
@@ -386,7 +408,7 @@ function Home() {
           Editorial culinary campaign showcase with floating discount badge
          ---------------------------------------------------------------------- */}
       {todaySpecial && (
-        <Section className="pt-0 pb-16 sm:pb-20">
+        <Section className="pt-0 pb-10 sm:pb-16 sm:pb-20">
           <div className="group relative surface-card overflow-hidden rounded-3xl border border-border/80 shadow-[var(--shadow-lift)] [perspective:1000px]">
             {/* Subtle ambient brand glow in background */}
             <div
@@ -413,7 +435,7 @@ function Home() {
               </div>
 
               {/* Right Column: Editorial Copy */}
-              <div className="relative flex flex-col justify-center space-y-4 p-8 sm:p-10 md:col-span-6 lg:col-span-7 lg:p-12">
+              <div className="relative flex flex-col justify-center space-y-4 p-5 sm:p-8 md:col-span-6 md:p-10 lg:col-span-7 lg:p-12">
                 <div className="flex flex-wrap items-center gap-2">
                   <div className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-3 py-1 text-xs font-semibold uppercase tracking-[0.22em] text-primary w-fit shadow-xs">
                     <span className="size-1.5 rounded-full bg-primary animate-pulse" aria-hidden />
@@ -443,12 +465,12 @@ function Home() {
                   </div>
                 </div>
 
-                <div className="flex items-baseline gap-3 pt-2">
-                  <span className="font-display text-3xl font-semibold text-primary">
+                <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 pt-2">
+                  <span className="font-display text-2xl font-semibold text-primary sm:text-3xl">
                     {formatETB(todaySpecial.discountedPrice)}
                   </span>
                   {todaySpecial.hasDiscount && (
-                    <span className="text-base text-muted-foreground line-through sm:text-lg">
+                    <span className="text-sm text-muted-foreground line-through sm:text-base sm:text-lg">
                       {formatETB(todaySpecial.originalPrice)}
                     </span>
                   )}
@@ -457,11 +479,11 @@ function Home() {
                   </span>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-3 pt-2">
+                <div className="flex flex-col sm:flex-row sm:items-center gap-3 pt-2 w-full sm:w-auto">
                   <Button
                     asChild
                     size="lg"
-                    className="rounded-full px-7 shadow-md transition-all duration-300 hover:shadow-lg"
+                    className="w-full sm:w-auto rounded-full px-7 shadow-md transition-all duration-300 hover:shadow-lg"
                   >
                     <Link to="/product/$id" params={{ id: todaySpecial.product.id }}>
                       Order the special
@@ -472,7 +494,7 @@ function Home() {
                     asChild
                     variant="outline"
                     size="lg"
-                    className="rounded-full px-6 transition-all duration-300 hover:bg-secondary"
+                    className="w-full sm:w-auto rounded-full px-6 transition-all duration-300 hover:bg-secondary"
                   >
                     <Link to="/promotions">
                       View all specials
@@ -490,7 +512,7 @@ function Home() {
           SECTION 5 â€” WHY NEBA
           Editorial feature matrix with watermark numerals and tracking highlight
          ---------------------------------------------------------------------- */}
-      <div className="border-y border-border/60 bg-cream py-16 sm:py-20 md:py-24">
+      <div className="border-y border-border/60 bg-cream py-10 sm:py-16 sm:py-20 md:py-24">
         <Section>
           <SectionHeading
             eyebrow="Why NEBA"
@@ -498,7 +520,7 @@ function Home() {
             align="center"
             description="A thoughtfully designed digital ordering experience built for speed, transparency, and delight."
           />
-          <div className="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-5">
+          <div className="mt-8 sm:mt-12 grid grid-cols-2 gap-3 sm:gap-5 lg:grid-cols-5">
             {benefits.map((b, idx) => {
               const numStr = `0${idx + 1}`;
 
@@ -506,34 +528,37 @@ function Home() {
                 <div
                   key={b.title}
                   className={cn(
-                    "group relative surface-card overflow-hidden p-6 transition-all duration-500 ease-out",
+                    "group relative surface-card overflow-hidden p-3.5 sm:p-6 transition-all duration-500 ease-out",
                     "hover:-translate-y-1.5 hover:shadow-[var(--shadow-lift)]",
                     b.highlight
                       ? "border-primary/40 ring-1 ring-primary/20 bg-background"
                       : "border-border/80",
+                    idx === 4 && "col-span-2 sm:col-span-1",
                   )}
                 >
                   <span
-                    className="pointer-events-none absolute right-3 top-1 font-display text-6xl font-bold tracking-tighter text-foreground/[0.04] select-none transition-colors duration-500 group-hover:text-primary/[0.08]"
+                    className="pointer-events-none absolute right-2 top-0.5 font-display text-4xl sm:text-6xl font-bold tracking-tighter text-foreground/[0.04] select-none transition-colors duration-500 group-hover:text-primary/[0.08]"
                     aria-hidden
                   >
                     {numStr}
                   </span>
 
                   <div className="relative z-10">
-                    <div className="mb-5 flex h-20 w-full items-center justify-center overflow-hidden rounded-xl bg-secondary/50">
+                    <div className="mb-3 sm:mb-5 flex h-14 sm:h-20 w-full items-center justify-center overflow-hidden rounded-lg sm:rounded-xl bg-secondary/50">
                       <img
                         src={b.image}
                         alt={b.imageAlt}
-                        className="h-full w-full object-contain p-2 transition-transform duration-500 group-hover:scale-105"
+                        className="h-full w-full object-contain p-1.5 sm:p-2 transition-transform duration-500 group-hover:scale-105"
                       />
                     </div>
 
-                    <h3 className="font-display text-base font-semibold tracking-tight text-foreground">
+                    <h3 className="font-display text-sm sm:text-base font-semibold tracking-tight text-foreground">
                       {b.title}
                     </h3>
 
-                    <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{b.text}</p>
+                    <p className="mt-1 sm:mt-2 text-xs sm:text-sm leading-relaxed text-muted-foreground">
+                      {b.text}
+                    </p>
                   </div>
                 </div>
               );
@@ -546,7 +571,7 @@ function Home() {
           SECTION 6 â€” ORDERING PROCESS
           Connected journey with progressive timeline nodes
          ---------------------------------------------------------------------- */}
-      <Section className="py-16 sm:py-20 md:py-24">
+      <Section className="py-10 sm:py-16 sm:py-20 md:py-24">
         <SectionHeading
           eyebrow="Ordering process"
           title="Six simple steps"
@@ -554,52 +579,84 @@ function Home() {
           description="From your first tap to your final bite, here is how effortless ordering is at NEBA."
         />
 
-        <div className="relative mt-14">
-          {/* Connecting track line across desktop steps */}
-          <div
-            className="pointer-events-none absolute top-7 left-12 right-12 hidden h-0.5 bg-border/80 lg:block"
-            aria-hidden
-          />
-
-          <ol className="grid gap-6 sm:grid-cols-2 lg:grid-cols-6">
+        <div className="relative mt-8 sm:mt-14">
+          {/* Mobile Connected Timeline (< lg) */}
+          <ol className="relative flex flex-col lg:hidden">
             {journey.map((j, idx) => {
-              const delayClass =
-                idx === 0
-                  ? ""
-                  : idx === 1
-                    ? "[animation-delay:100ms]"
-                    : idx === 2
-                      ? "[animation-delay:200ms]"
-                      : idx === 3
-                        ? "[animation-delay:300ms]"
-                        : idx === 4
-                          ? "[animation-delay:400ms]"
-                          : "[animation-delay:500ms]";
-
+              const isLast = idx === journey.length - 1;
               return (
-                <li
-                  key={j.step}
-                  className={cn(
-                    "group relative surface-card hover-lift flex flex-col items-center p-6 text-center transition-all duration-300",
-                    delayClass,
-                  )}
-                >
-                  {/* Circular 3D Step Marker */}
-                  <div className="relative -mt-10 mb-4 flex size-13 items-center justify-center rounded-full border-2 border-primary/30 bg-background shadow-md transition-transform duration-500 group-hover:scale-110 group-hover:border-primary motion-reduce:transform-none">
-                    <span className="font-display text-lg font-bold text-primary">{j.step}</span>
+                <li key={j.step} className="relative flex items-start gap-3.5 pb-3.5 last:pb-0">
+                  {/* Step Marker Badge */}
+                  <div className="relative z-10 flex size-10 shrink-0 items-center justify-center rounded-full border-2 border-primary/40 bg-background shadow-xs">
+                    <span className="font-display text-sm font-bold text-primary">{j.step}</span>
                   </div>
 
-                  <h3 className="font-display text-base font-semibold tracking-tight text-foreground">
-                    {j.title}
-                  </h3>
+                  {/* Continuous Visual Connector Line */}
+                  {!isLast && (
+                    <div
+                      className="pointer-events-none absolute top-8 bottom-0 left-[19px] z-0 w-0.5 bg-primary/25"
+                      aria-hidden
+                    />
+                  )}
 
-                  <p className="mt-2 text-xs leading-relaxed text-muted-foreground sm:text-sm">
-                    {j.text}
-                  </p>
+                  {/* Compact Step Content Card */}
+                  <div className="surface-card flex-1 px-3.5 py-2.5 rounded-xl transition-all duration-300">
+                    <h3 className="font-display text-sm font-semibold tracking-tight text-foreground">
+                      {j.title}
+                    </h3>
+                    <p className="mt-0.5 text-xs text-muted-foreground leading-relaxed">{j.text}</p>
+                  </div>
                 </li>
               );
             })}
           </ol>
+
+          {/* Desktop 6-Column Connected Journey (lg+) */}
+          <div className="relative hidden lg:block">
+            {/* Connecting track line across desktop steps */}
+            <div
+              className="pointer-events-none absolute top-7 left-12 right-12 h-0.5 bg-border/80"
+              aria-hidden
+            />
+
+            <ol className="grid grid-cols-6 gap-6">
+              {journey.map((j, idx) => {
+                const delayClass =
+                  idx === 0
+                    ? ""
+                    : idx === 1
+                      ? "[animation-delay:100ms]"
+                      : idx === 2
+                        ? "[animation-delay:200ms]"
+                        : idx === 3
+                          ? "[animation-delay:300ms]"
+                          : idx === 4
+                            ? "[animation-delay:400ms]"
+                            : "[animation-delay:500ms]";
+
+                return (
+                  <li
+                    key={j.step}
+                    className={cn(
+                      "group relative surface-card hover-lift flex flex-col items-center p-6 text-center transition-all duration-300",
+                      delayClass,
+                    )}
+                  >
+                    {/* Circular 3D Step Marker */}
+                    <div className="relative -mt-10 mb-4 flex size-13 items-center justify-center rounded-full border-2 border-primary/30 bg-background shadow-md transition-transform duration-500 group-hover:scale-110 group-hover:border-primary motion-reduce:transform-none">
+                      <span className="font-display text-lg font-bold text-primary">{j.step}</span>
+                    </div>
+
+                    <h3 className="font-display text-base font-semibold tracking-tight text-foreground">
+                      {j.title}
+                    </h3>
+
+                    <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{j.text}</p>
+                  </li>
+                );
+              })}
+            </ol>
+          </div>
         </div>
       </Section>
 
@@ -607,33 +664,35 @@ function Home() {
           SECTION 7 â€” ORDERING METHODS
           Elevated service cards with experience badges
          ---------------------------------------------------------------------- */}
-      <Section className="pt-0 pb-16 sm:pb-20">
+      <Section className="pt-0 pb-10 sm:pb-16 sm:pb-20">
         <SectionHeading
           eyebrow="Ordering methods"
           title="However you like to eat"
           description="Choose the way that best fits your schedule and lifestyle."
         />
 
-        <div className="mt-10 grid gap-6 md:grid-cols-3">
+        <div className="mt-6 sm:mt-10 grid gap-3 sm:gap-6 md:grid-cols-3">
           {methods.map((m) => (
             <div
               key={m.title}
-              className="group surface-card hover-lift flex flex-col justify-between p-7 transition-all duration-300 [perspective:800px]"
+              className="group surface-card hover-lift flex flex-col justify-between p-4 sm:p-7 transition-all duration-300 [perspective:800px]"
             >
-              <div className="flex items-start justify-between gap-4">
-                <div className="flex size-13 items-center justify-center rounded-2xl border border-primary/20 bg-primary/10 text-primary shadow-xs transition-transform duration-500 group-hover:scale-110 motion-reduce:transform-none">
-                  <m.icon className="size-6 shrink-0" aria-hidden />
+              <div className="flex items-start justify-between gap-3 sm:gap-4">
+                <div className="flex size-10 sm:size-13 items-center justify-center rounded-xl sm:rounded-2xl border border-primary/20 bg-primary/10 text-primary shadow-xs transition-transform duration-500 group-hover:scale-110 motion-reduce:transform-none">
+                  <m.icon className="size-5 sm:size-6 shrink-0" aria-hidden />
                 </div>
-                <span className="rounded-full bg-secondary px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                <span className="rounded-full bg-secondary px-2.5 py-0.5 sm:px-3 sm:py-1 text-[10px] sm:text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                   {m.badge}
                 </span>
               </div>
 
-              <div className="mt-6">
-                <h3 className="font-display text-xl font-semibold tracking-tight text-foreground">
+              <div className="mt-3 sm:mt-6">
+                <h3 className="font-display text-base sm:text-xl font-semibold tracking-tight text-foreground">
                   {m.title}
                 </h3>
-                <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{m.text}</p>
+                <p className="mt-1 sm:mt-2 text-xs sm:text-sm leading-relaxed text-muted-foreground">
+                  {m.text}
+                </p>
               </div>
             </div>
           ))}
@@ -644,8 +703,8 @@ function Home() {
           SECTION 8 â€” VISIT NEBA & ORNIX-TECH PLATFORM
           Atmospheric espresso flagship experience with technology highlights
          ---------------------------------------------------------------------- */}
-      <Section className="py-16 sm:py-20 md:py-24">
-        <div className="relative surface-card overflow-hidden rounded-3xl bg-espresso p-8 sm:p-12 md:p-16 text-espresso-foreground shadow-[var(--shadow-lift)] border border-espresso-foreground/10">
+      <Section className="py-10 sm:py-16 sm:py-20 md:py-24">
+        <div className="relative surface-card overflow-hidden rounded-2xl sm:rounded-3xl bg-espresso p-5 sm:p-8 md:p-12 lg:p-16 text-espresso-foreground shadow-[var(--shadow-lift)] border border-espresso-foreground/10">
           {/* Subtle brand glow discs in background */}
           <div
             className="pointer-events-none absolute -right-16 -top-16 size-80 rounded-full bg-primary/20 blur-3xl"
@@ -656,15 +715,15 @@ function Home() {
             aria-hidden
           />
 
-          <div className="relative z-10 grid items-center gap-10 lg:grid-cols-12">
+          <div className="relative z-10 grid items-center gap-8 lg:grid-cols-12 lg:gap-10">
             {/* Left Side: Physical CafÃ© Experience */}
-            <div className="space-y-6 lg:col-span-7">
+            <div className="space-y-4 sm:space-y-6 lg:col-span-7">
               <div className="inline-flex items-center gap-2 rounded-full border border-espresso-foreground/20 bg-espresso-foreground/10 px-3.5 py-1 text-xs font-semibold uppercase tracking-[0.22em] text-espresso-foreground/80">
                 <MapPin className="size-3.5 text-primary" aria-hidden />
                 Visit NEBA CafÃ©
               </div>
 
-              <h2 className="font-display text-3xl font-semibold tracking-tight sm:text-4xl lg:text-5xl text-espresso-foreground">
+              <h2 className="font-display text-2xl sm:text-3xl lg:text-5xl font-semibold tracking-tight text-espresso-foreground">
                 Good Food. Great Moments.
               </h2>
 
@@ -679,7 +738,7 @@ function Home() {
                   asChild
                   size="lg"
                   variant="secondary"
-                  className="rounded-full border border-espresso-foreground/20 bg-espresso-foreground/15 px-8 text-espresso-foreground transition-all duration-300 hover:bg-espresso-foreground/25 hover:shadow-md"
+                  className="w-full sm:w-auto rounded-full border border-espresso-foreground/20 bg-espresso-foreground/15 px-8 text-espresso-foreground transition-all duration-300 hover:bg-espresso-foreground/25 hover:shadow-md"
                 >
                   <Link to="/contact">
                     Contact us
@@ -691,7 +750,7 @@ function Home() {
 
             {/* Right Side: ORNIX-TECH Digital Ordering Platform */}
             <div className="lg:col-span-5">
-              <div className="space-y-4 rounded-2xl border border-espresso-foreground/15 bg-espresso-foreground/[0.06] p-6 backdrop-blur-md sm:p-7">
+              <div className="space-y-3.5 sm:space-y-4 rounded-xl sm:rounded-2xl border border-espresso-foreground/15 bg-espresso-foreground/[0.06] p-4 sm:p-6 backdrop-blur-md sm:p-7">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-semibold uppercase tracking-widest text-espresso-foreground/70">
                     Digital Platform

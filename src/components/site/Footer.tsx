@@ -23,7 +23,7 @@ const columns = [
 
 export function Footer() {
   return (
-    <footer className="mt-24 bg-espresso text-espresso-foreground">
+    <footer className="mt-12 sm:mt-20 md:mt-24 bg-espresso text-espresso-foreground">
       <div className="mx-auto grid w-full max-w-7xl gap-10 px-4 py-14 sm:px-6 md:grid-cols-4">
         <div className="md:col-span-2">
           <p className="font-display text-2xl font-semibold">NEBA CAFÉ</p>
