@@ -13,7 +13,7 @@ export function Section({
   return (
     <section
       id={id}
-      className={cn("mx-auto w-full max-w-7xl px-4 py-16 sm:px-6 md:py-20", className)}
+      className={cn("mx-auto w-full max-w-7xl px-4 py-10 sm:px-6 sm:py-16 md:py-20", className)}
     >
       {children}
     </section>
@@ -36,8 +36,10 @@ export function SectionHeading({
       {eyebrow && (
         <p className="text-xs font-semibold uppercase tracking-[0.22em] text-primary">{eyebrow}</p>
       )}
-      <h2 className="mt-3 text-3xl font-semibold md:text-4xl">{title}</h2>
-      {description && <p className="mt-3 text-base text-muted-foreground">{description}</p>}
+      <h2 className="mt-2 text-2xl font-semibold sm:mt-3 sm:text-3xl md:text-4xl">{title}</h2>
+      {description && (
+        <p className="mt-2 text-sm text-muted-foreground sm:mt-3 sm:text-base">{description}</p>
+      )}
     </div>
   );
 }

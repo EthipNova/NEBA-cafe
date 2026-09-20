@@ -33,29 +33,38 @@ export function ProductCard({ product }: { product: Product }) {
         )}
       </Link>
 
-      <div className="flex flex-1 flex-col gap-2 p-4">
-        <div className="flex items-start justify-between gap-3">
-          <h3 className="font-display text-lg font-semibold leading-tight">
-            <Link to="/product/$id" params={{ id: product.id }}>
-              {product.name}
-            </Link>
-          </h3>
-          <span className="whitespace-nowrap text-sm font-semibold text-primary">
-            {formatETB(product.price)}
-          </span>
+      <div className="flex flex-1 flex-col justify-between gap-2 p-3 sm:p-4">
+        <div>
+          <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
+            <h3 className="font-display text-sm font-semibold leading-tight sm:text-lg">
+              <Link
+                to="/product/$id"
+                params={{ id: product.id }}
+                className="line-clamp-1 sm:line-clamp-none"
+              >
+                {product.name}
+              </Link>
+            </h3>
+            <span className="whitespace-nowrap text-xs font-bold text-primary sm:text-sm sm:font-semibold">
+              {formatETB(product.price)}
+            </span>
+          </div>
+          <p className="mt-1 line-clamp-2 text-xs text-muted-foreground sm:mt-1.5 sm:text-sm">
+            {product.description}
+          </p>
         </div>
-        <p className="line-clamp-2 text-sm text-muted-foreground">{product.description}</p>
 
         <Button
-          className="mt-3 w-full"
+          size="sm"
+          className="mt-2.5 w-full h-8 text-xs sm:mt-3 sm:h-9 sm:text-sm"
           disabled={!product.available}
           onClick={() => {
             add(product.id);
             toast.success(`${product.name} added to cart`);
           }}
         >
-          <Plus className="size-4" />
-          {product.available ? "Add to Cart" : "Unavailable"}
+          <Plus className="size-3.5 sm:size-4" />
+          <span className="truncate">{product.available ? "Add to Cart" : "Unavailable"}</span>
         </Button>
       </div>
     </article>
